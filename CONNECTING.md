@@ -265,6 +265,11 @@ not a timeout.
 NUXT_SESSION_PASSWORD=<at least 32 characters>   # required, for the cookies
 HERMES_UI_DB=/data/hermes-ui.db                  # put this on a volume
 
+# Token prices for the cost page, USD per million tokens. Anthropic models
+# ship with defaults; anything else is counted in tokens and left out of the
+# money total until it is listed here.
+MODEL_PRICES={"my-model":{"in":3,"out":15}}
+
 # Web Push. Without these, notifications stay switched off rather than
 # failing — generate a pair with:  npx web-push generate-vapid-keys
 VAPID_PUBLIC_KEY=<public key>
@@ -303,6 +308,20 @@ the case that matters — by then nobody is still watching the window), and when
 a cron report arrives. The author never gets notified about their own message.
 The page is installable as a PWA; on a phone that is also what makes push work
 at all under iOS.
+
+**Cost.** The Cost page adds up what the agents spent, per agent and per
+scheduled job. Chat runs report their own usage when they finish, so those
+rows are exact. Scheduled runs are the expensive ones — one weekly report
+measured 133,189 tokens — and Hermes logs them into `cron/usage_audit.jsonl`
+on the agent host, which no endpoint exposes. So the `chat` tool ships them:
+
+```bash
+chat usage --tage 7      # send the last week's records
+```
+
+`fire_id` is the key on this side, unique, so shipping the same file twice
+changes nothing and neither end needs to remember what it already sent. Give
+each profile a daily cron job for it and the page stays current.
 
 **Seeing the schedule.** The Schedule page lists every profile's cron jobs,
 sorted by next run across all of them — the question it answers is "what
@@ -352,8 +371,11 @@ becomes reachable after a restart, not immediately.
 - **A new profile needs a restart.** Creating one through an operator bot
   works, but its gateway starts with the Hermes container.
 - **No mail.** Invitations are links you pass on yourself.
-- **Markdown is not rendered.** A bot's answer is shown as it came, with line
-  breaks and no formatting.
+- **Markdown is rendered by a small renderer of its own**, not by a library:
+  headings, emphasis, code, links, lists, quotes, rules and tables. Every
+  character of content is escaped and only its own tags are emitted, so no
+  input HTML can reach the page — a model that has been reading the open web
+  is hostile input. Anything outside that subset shows as literal text.
 
 ---
 

@@ -97,6 +97,65 @@ def cmd_kanaele(args):
         print(f"  #{k['slug']:<24} {k['name']}" + (f" — {k['topic']}" if k.get("topic") else ""))
 
 
+def cmd_usage(args):
+    """Verbrauchszahlen der Cron-Läufe an die Oberfläche schicken.
+
+    Hermes schreibt je Lauf eine Zeile nach cron/usage_audit.jsonl — Modell,
+    Token, Dauer — und stellt sie über keinen Endpunkt bereit. Ohne diesen
+    Weg zeigt eine Kostenansicht nur den Chat und unterschätzt die Rechnung
+    deutlich; die geplanten Läufe sind die teuren.
+
+    Die Kennung `fire_id` ist drüben eindeutig, also ist mehrfaches Schicken
+    derselben Datei harmlos. Deshalb gibt es hier keine Buchhaltung darüber,
+    was schon übertragen wurde: der einfachere Weg ist auch der robustere.
+    """
+    c = config()
+    pfad = args.datei or os.path.join(
+        os.environ.get("HERMES_HOME") or HOME, "cron", "usage_audit.jsonl")
+    if not os.path.exists(pfad):
+        raise Fehler(f"Keine Verbrauchsdatei unter {pfad}.")
+
+    grenze = None
+    if args.tage:
+        from datetime import datetime, timedelta, timezone
+        grenze = datetime.now(timezone.utc) - timedelta(days=args.tage)
+
+    saetze = []
+    with open(pfad, encoding="utf-8") as f:
+        for zeile in f:
+            zeile = zeile.strip()
+            if not zeile:
+                continue
+            try:
+                r = json.loads(zeile)
+            except Exception:
+                continue          # eine kaputte Zeile kippt nicht den Lauf
+            if not r.get("fire_id"):
+                continue
+            if grenze:
+                try:
+                    from datetime import datetime
+                    ts = datetime.fromisoformat(r["ts"].replace("Z", "+00:00"))
+                    if ts < grenze:
+                        continue
+                except Exception:
+                    pass
+            saetze.append(r)
+
+    if not saetze:
+        print("Nichts zu schicken.")
+        return
+
+    # In Häppchen, weil der Endpunkt bei 2000 Sätzen abweist und eine
+    # jahrealte Datei das überschreiten kann.
+    gesamt = neu = 0
+    for i in range(0, len(saetze), 500):
+        a = api(c, "/api/bot/usage", {"records": saetze[i:i + 500]})
+        gesamt += a.get("accepted", 0)
+        neu += a.get("stored", 0)
+    print(f"{gesamt} Sätze geschickt, {neu} davon neu.")
+
+
 def main():
     import argparse
     p = argparse.ArgumentParser(prog="chat", description="Als Bot in die Kanäle der Hermes-Oberfläche schreiben.")
@@ -113,10 +172,14 @@ def main():
 
     u.add_parser("channels", aliases=["kanaele"], help="welche Kanäle es gibt")
 
+    v = u.add_parser("usage", help="Verbrauchszahlen der Cron-Läufe übertragen")
+    v.add_argument("--tage", type=int, help="nur Läufe der letzten N Tage")
+    v.add_argument("--datei", help="andere Verbrauchsdatei als cron/usage_audit.jsonl")
+
     args = p.parse_args()
     try:
         {"post": cmd_post, "channels": cmd_kanaele,
-         "kanaele": cmd_kanaele}[args.befehl](args)
+         "kanaele": cmd_kanaele, "usage": cmd_usage}[args.befehl](args)
     except Fehler as e:
         print(f"chat: {e}", file=sys.stderr)
         sys.exit(1)

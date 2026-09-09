@@ -61,7 +61,8 @@ function createTables(sqlite: Database.Database) {
     CREATE TABLE IF NOT EXISTS members (
       id TEXT PRIMARY KEY,
       channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL, ref_id TEXT NOT NULL, added_at INTEGER NOT NULL);
+      kind TEXT NOT NULL, ref_id TEXT NOT NULL,
+      last_read_at INTEGER, added_at INTEGER NOT NULL);
     CREATE UNIQUE INDEX IF NOT EXISTS members_unique ON members(channel_id, kind, ref_id);
     CREATE INDEX IF NOT EXISTS members_channel ON members(channel_id);
 
@@ -70,7 +71,9 @@ function createTables(sqlite: Database.Database) {
       channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
       thread_root_id TEXT, author_kind TEXT NOT NULL, author_id TEXT NOT NULL,
       body TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'done',
-      run_id TEXT, approval TEXT, created_at INTEGER NOT NULL);
+      run_id TEXT, approval TEXT, progress TEXT,
+      input_tokens INTEGER, output_tokens INTEGER,
+      created_at INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS messages_channel_time ON messages(channel_id, created_at);
     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_root_id);
 
@@ -96,6 +99,17 @@ function createTables(sqlite: Database.Database) {
       endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       user_agent TEXT, created_at INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS push_user ON push_subscriptions(user_id);
+
+    CREATE TABLE IF NOT EXISTS usage (
+      id TEXT PRIMARY KEY,
+      bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL, ref TEXT NOT NULL UNIQUE,
+      job_id TEXT, job_name TEXT, model TEXT,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER, at INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS usage_at ON usage(at);
+    CREATE INDEX IF NOT EXISTS usage_bot ON usage(bot_id);
   `)
 
   // Retro-fit existing databases. ADD COLUMN is cheap and idempotent as long
@@ -104,6 +118,10 @@ function createTables(sqlite: Database.Database) {
   addColumn(sqlite, 'messages', 'approval TEXT')
   addColumn(sqlite, 'users', 'locale TEXT')
   addColumn(sqlite, 'bots', 'operator INTEGER NOT NULL DEFAULT 0')
+  addColumn(sqlite, 'messages', 'progress TEXT')
+  addColumn(sqlite, 'messages', 'input_tokens INTEGER')
+  addColumn(sqlite, 'messages', 'output_tokens INTEGER')
+  addColumn(sqlite, 'members', 'last_read_at INTEGER')
 }
 
 function addColumn(sqlite: Database.Database, table: string, definition: string) {

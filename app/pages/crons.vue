@@ -76,15 +76,15 @@ const open = ref<string | null>(null)
     <Sidebar />
 
     <main class="flex-1 overflow-y-auto scroller">
-      <header class="px-6 py-4 border-b border-edge panel flex items-center gap-3">
+      <AppHeader>
         <h1 class="font-mono text-sm tracking-[.2em] uppercase text-cyan">{{ t('crons.title') }}</h1>
         <span class="meta">{{ t('crons.subtitle') }}</span>
         <button class="btn ml-auto" :disabled="loading" @click="fetchCrons">
           {{ t('crons.refresh') }}
         </button>
-      </header>
+      </AppHeader>
 
-      <div class="p-6 max-w-4xl space-y-4">
+      <div class="p-4 lg:p-6 max-w-4xl space-y-4">
         <p v-if="loading" class="meta">{{ t('common.loading') }}</p>
 
         <!-- A profile that did not answer is stated, not hidden. -->

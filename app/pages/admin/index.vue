@@ -84,12 +84,12 @@ onMounted(loadInvites)
     <Sidebar />
 
     <main class="flex-1 overflow-y-auto scroller">
-      <header class="px-6 py-4 border-b border-edge panel flex items-center gap-3">
+      <AppHeader>
         <h1 class="font-mono text-sm tracking-[.2em] uppercase text-cyan">{{ t('admin.title') }}</h1>
         <NuxtLink to="/" class="btn ml-auto">{{ t('nav.backToChat') }}</NuxtLink>
-      </header>
+      </AppHeader>
 
-      <div class="p-6 space-y-8 max-w-4xl">
+      <div class="p-4 lg:p-6 space-y-8 max-w-4xl">
         <!-- Notifications ------------------------------------------------ -->
         <section class="panel panel-clip bracket p-5">
           <h2 class="label mb-3">{{ t('push.title') }}</h2>

@@ -2,6 +2,7 @@ import { useDb, schema } from '~~/server/db'
 import { requireUser } from '~~/server/utils/auth'
 import { id } from '~~/server/utils/ids'
 import { startRun, newSession } from '~~/server/utils/hermes'
+import { watchRun } from '~~/server/utils/watcher'
 import { notifyChannel, preview } from '~~/server/utils/push'
 import { and, eq, isNull } from 'drizzle-orm'
 
@@ -51,6 +52,8 @@ export default defineEventHandler(async (event) => {
       .map(b => b.id)
   }
 
+  const allBots = addressed.length ? await db.select().from(schema.bots) : []
+
   for (const botId of addressed) {
     const replyId = id('msg')
     try {
@@ -61,6 +64,18 @@ export default defineEventHandler(async (event) => {
         authorKind: 'bot', authorId: botId, body: '', state: 'pending',
         runId, createdAt: Date.now(),
       })
+
+      // Follow the run's event stream so the channel can show which tool is
+      // running, catch an approval request the moment it is asked, and record
+      // what the answer cost. Not awaited, and not load-bearing: the polling
+      // reconciliation still finishes the message if this dies.
+      const bot = allBots.find(b => b.id === botId)
+      if (bot) {
+        watchRun({
+          runId, messageId: replyId, channelId: cid, botId,
+          apiBase: bot.apiBase, apiKey: bot.apiKey, botName: bot.name,
+        })
+      }
     } catch (e: any) {
       await db.insert(schema.messages).values({
         id: replyId, channelId: cid, threadRootId: thread || null,

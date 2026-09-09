@@ -168,19 +168,19 @@ const canLeaveOne = computed(() => form.name.trim().length > 1 && form.slug.trim
     <Sidebar />
 
     <main class="flex-1 overflow-y-auto scroller">
-      <header class="px-6 py-4 border-b border-edge panel flex items-center gap-3">
+      <AppHeader>
         <h1 class="font-mono text-sm tracking-[.2em] uppercase text-cyan">{{ t('admin.newBot') }}</h1>
         <span class="label ml-auto">{{ t('soul.step', { n: step, total: TOTAL }) }}</span>
         <NuxtLink to="/admin" class="btn">{{ t('common.cancel') }}</NuxtLink>
-      </header>
+      </AppHeader>
 
       <!-- Progress rail: four segments, lit as far as you have come. -->
-      <div class="flex gap-1 px-6 pt-4">
+      <div class="flex gap-1 px-4 lg:px-6 pt-4">
         <span v-for="n in TOTAL" :key="n" class="h-0.5 flex-1"
               :class="n <= step ? 'bg-cyan shadow-[0_0_8px_#22d3ee]' : 'bg-edge'" />
       </div>
 
-      <div class="p-6 max-w-3xl space-y-6">
+      <div class="p-4 lg:p-6 max-w-3xl space-y-6">
         <!-- 1 · identity -->
         <section v-if="step === 1" class="panel panel-clip bracket p-5 space-y-4">
           <h2 class="label">{{ t('bot.identity') }}</h2>

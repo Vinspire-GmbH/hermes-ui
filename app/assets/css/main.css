@@ -31,42 +31,224 @@
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 }
 
-html, body, #__nuxt { height: 100%; }
+/*
+ * Layers, and why they matter here.
+ *
+ * These rules used to sit after the Tailwind import with no layer, which
+ * put them above every utility in the cascade. `.panel` sets
+ * `position: relative`, so an element carrying both `panel` and `fixed`
+ * came out relative — that is what pinned the sidebar into the flow on a
+ * phone and squeezed the chat into 119 pixels. In `@layer components` the
+ * utilities win again, which is the behaviour every Tailwind class assumes.
+ */
+@layer base {
+  html, body, #__nuxt { height: 100%; }
 
-body {
-  background: var(--color-void);
-  color: var(--color-ink);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-feature-settings: "cv11", "ss01";
-  -webkit-font-smoothing: antialiased;
+  body {
+    background: var(--color-void);
+    color: var(--color-ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
 }
 
-/* ── The ground ──────────────────────────────────────────────────────────
-   A grid and two distant glows. Fixed, so it does not scroll with content
-   and does not repaint on every message. */
-.starfield {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(900px 600px at 12% -10%, #0e2a4a55, transparent 70%),
-    radial-gradient(700px 500px at 105% 105%, #3b0d4a44, transparent 70%),
-    linear-gradient(transparent 95%, #1e2c4433 95%) 0 0 / 100% 32px,
-    linear-gradient(90deg, transparent 95%, #1e2c4426 95%) 0 0 / 32px 100%;
+@layer components {
+  /* ── The ground ──────────────────────────────────────────────────────────
+     A grid and two distant glows. Fixed, so it does not scroll with content
+     and does not repaint on every message. */
+  .starfield {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(900px 600px at 12% -10%, #0e2a4a55, transparent 70%),
+      radial-gradient(700px 500px at 105% 105%, #3b0d4a44, transparent 70%),
+      linear-gradient(transparent 95%, #1e2c4433 95%) 0 0 / 100% 32px,
+      linear-gradient(90deg, transparent 95%, #1e2c4426 95%) 0 0 / 32px 100%;
+  }
+
+  /* A single slow sweep. One moving thing on the page is atmosphere; three is
+     a fairground. */
+  .scanline {
+    position: fixed;
+    left: 0; right: 0; top: 0;
+    height: 140px;
+    pointer-events: none;
+    z-index: 1;
+    background: linear-gradient(180deg, transparent, #22d3ee0a 55%, transparent);
+    animation: sweep 14s linear infinite;
+  }
+
+  /* ── Panels ────────────────────────────────────────────────────────────── */
+  .panel {
+    background:
+      linear-gradient(#101725ee, #0a0e18ee);
+    border: 1px solid var(--color-edge);
+    position: relative;
+  }
+  .panel-clip {
+    clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+  }
+  /* Corner brackets, drawn rather than imaged. */
+  .bracket::before,
+  .bracket::after {
+    content: "";
+    position: absolute;
+    width: 10px; height: 10px;
+    border-color: var(--color-cyan);
+    opacity: .55;
+  }
+  .bracket::before { top: -1px; left: -1px; border-top: 1px solid; border-left: 1px solid; }
+  .bracket::after  { bottom: -1px; right: -1px; border-bottom: 1px solid; border-right: 1px solid; }
+
+  /* ── Type ──────────────────────────────────────────────────────────────── */
+  .label {
+    font-family: var(--font-mono);
+    font-size: .6875rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+  .meta { font-family: var(--font-mono); font-size: .6875rem; color: var(--color-faint); }
+
+  /* ── Controls ──────────────────────────────────────────────────────────── */
+  .field {
+    width: 100%;
+    background: #060a12;
+    border: 1px solid var(--color-edge);
+    color: var(--color-ink);
+    padding: .5rem .625rem;
+    font-size: .875rem;
+    outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .field:focus {
+    border-color: var(--color-cyan);
+    box-shadow: 0 0 0 1px #22d3ee40, 0 0 18px -6px #22d3ee80;
+  }
+  .field::placeholder { color: var(--color-faint); }
+
+  .btn {
+    font-family: var(--font-mono);
+    font-size: .75rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: .5rem .875rem;
+    border: 1px solid var(--color-edge-bright);
+    color: var(--color-ink);
+    background: #0d1522;
+    transition: border-color .15s, box-shadow .15s, color .15s;
+    cursor: pointer;
+  }
+  .btn:hover:not(:disabled) {
+    border-color: var(--color-cyan);
+    color: var(--color-cyan);
+    box-shadow: 0 0 20px -8px #22d3ee;
+  }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary {
+    border-color: #22d3ee66;
+    background: linear-gradient(#0e2b35, #0a1d26);
+    color: var(--color-cyan);
+  }
+  .btn-danger:hover:not(:disabled) {
+    border-color: var(--color-rose);
+    color: var(--color-rose);
+    box-shadow: 0 0 20px -8px var(--color-rose);
+  }
+
+  /* ── Lists and scrolling ───────────────────────────────────────────────── */
+  .scroller {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-edge) transparent;
+  }
+  .scroller::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scroller::-webkit-scrollbar-thumb { background: var(--color-edge); }
+  .scroller::-webkit-scrollbar-track { background: transparent; }
+
+  /* The active row in the sidebar gets a lit left edge rather than a fill —
+     a fill at this contrast either shouts or disappears. */
+  .row-active {
+    background: linear-gradient(90deg, #22d3ee14, transparent 60%);
+    box-shadow: inset 2px 0 0 var(--color-cyan);
+    color: var(--color-cyan);
+  }
+
+  /* ── Waiting ───────────────────────────────────────────────────────────── */
+  .pulse-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 9999px;
+    background: var(--color-cyan);
+    animation: breathe 1.4s ease-in-out infinite;
+  }
+  .pulse-dot:nth-child(2) { animation-delay: .2s; }
+  .pulse-dot:nth-child(3) { animation-delay: .4s; }
+
+  /* Prose inside a bot's answer. Markdown is not rendered — this only keeps
+     long text and code readable. */
+  .answer { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+  .answer code { font-family: var(--font-mono); font-size: .8125rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scanline { display: none; }
+    .pulse-dot { animation: none; opacity: .7; }
+  }
+
+  /* ── Rendered Markdown ───────────────────────────────────────────────────
+     A bot's answer is a small document: headings, lists, tables, code. The
+     spacing here is tighter than prose defaults because these sit in a chat
+     stream, where a heading with 2em above it reads as a gap, not a heading. */
+  .md { line-height: 1.6; overflow-wrap: anywhere; }
+  .md > * + * { margin-top: .5rem; }
+  .md h2, .md h3, .md h4, .md h5 {
+    font-weight: 600;
+    letter-spacing: .01em;
+    color: var(--color-ink);
+  }
+  .md h2 { font-size: 1.0625rem; margin-top: 1rem; }
+  .md h3 { font-size: 1rem; margin-top: .875rem; }
+  .md h4, .md h5 { font-size: .9375rem; margin-top: .75rem; }
+  .md p { color: var(--color-ink); }
+  .md strong { color: #fff; font-weight: 600; }
+  .md em { font-style: italic; color: var(--color-ink); }
+  .md del { color: var(--color-faint); }
+  .md a { color: var(--color-cyan); text-decoration: underline; text-underline-offset: 2px; }
+  .md a:hover { text-shadow: 0 0 12px #22d3ee80; }
+  .md ul, .md ol { padding-left: 1.25rem; }
+  .md ul { list-style: disc; }
+  .md ol { list-style: decimal; }
+  .md li { margin-top: .25rem; }
+  .md li::marker { color: var(--color-faint); }
+  .md code {
+    font-family: var(--font-mono);
+    font-size: .8125rem;
+    background: #060a12;
+    border: 1px solid var(--color-edge);
+    padding: .0625rem .25rem;
+  }
+  .md pre {
+    background: var(--color-void);
+    border: 1px solid var(--color-edge);
+    padding: .625rem .75rem;
+    overflow-x: auto;
+  }
+  /* Inside a block the border and background belong to the block, not each line. */
+  .md pre code { background: none; border: 0; padding: 0; font-size: .8125rem; }
+  .md blockquote {
+    border-left: 2px solid var(--color-edge-bright);
+    padding-left: .75rem;
+    color: var(--color-muted);
+  }
+  .md hr { border: 0; border-top: 1px solid var(--color-edge); margin: .875rem 0; }
+  /* A wide table scrolls inside its own box rather than stretching the channel. */
+  .md table { display: block; overflow-x: auto; border-collapse: collapse; font-size: .8125rem; }
+  .md th, .md td { border: 1px solid var(--color-edge); padding: .25rem .5rem; text-align: left; }
+  .md th { color: var(--color-faint); font-weight: 500; font-family: var(--font-mono); font-size: .75rem; }
 }
 
-/* A single slow sweep. One moving thing on the page is atmosphere; three is
-   a fairground. */
-.scanline {
-  position: fixed;
-  left: 0; right: 0; top: 0;
-  height: 140px;
-  pointer-events: none;
-  z-index: 1;
-  background: linear-gradient(180deg, transparent, #22d3ee0a 55%, transparent);
-  animation: sweep 14s linear infinite;
-}
 @keyframes sweep {
   0%   { transform: translateY(-140px); opacity: 0; }
   10%  { opacity: 1; }
@@ -74,122 +256,8 @@ body {
   100% { transform: translateY(100vh); opacity: 0; }
 }
 
-/* ── Panels ────────────────────────────────────────────────────────────── */
-.panel {
-  background:
-    linear-gradient(#101725ee, #0a0e18ee);
-  border: 1px solid var(--color-edge);
-  position: relative;
-}
-.panel-clip {
-  clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
-}
-/* Corner brackets, drawn rather than imaged. */
-.bracket::before,
-.bracket::after {
-  content: "";
-  position: absolute;
-  width: 10px; height: 10px;
-  border-color: var(--color-cyan);
-  opacity: .55;
-}
-.bracket::before { top: -1px; left: -1px; border-top: 1px solid; border-left: 1px solid; }
-.bracket::after  { bottom: -1px; right: -1px; border-bottom: 1px solid; border-right: 1px solid; }
-
-/* ── Type ──────────────────────────────────────────────────────────────── */
-.label {
-  font-family: var(--font-mono);
-  font-size: .6875rem;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--color-faint);
-}
-.meta { font-family: var(--font-mono); font-size: .6875rem; color: var(--color-faint); }
-
-/* ── Controls ──────────────────────────────────────────────────────────── */
-.field {
-  width: 100%;
-  background: #060a12;
-  border: 1px solid var(--color-edge);
-  color: var(--color-ink);
-  padding: .5rem .625rem;
-  font-size: .875rem;
-  outline: none;
-  transition: border-color .15s, box-shadow .15s;
-}
-.field:focus {
-  border-color: var(--color-cyan);
-  box-shadow: 0 0 0 1px #22d3ee40, 0 0 18px -6px #22d3ee80;
-}
-.field::placeholder { color: var(--color-faint); }
-
-.btn {
-  font-family: var(--font-mono);
-  font-size: .75rem;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  padding: .5rem .875rem;
-  border: 1px solid var(--color-edge-bright);
-  color: var(--color-ink);
-  background: #0d1522;
-  transition: border-color .15s, box-shadow .15s, color .15s;
-  cursor: pointer;
-}
-.btn:hover:not(:disabled) {
-  border-color: var(--color-cyan);
-  color: var(--color-cyan);
-  box-shadow: 0 0 20px -8px #22d3ee;
-}
-.btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn-primary {
-  border-color: #22d3ee66;
-  background: linear-gradient(#0e2b35, #0a1d26);
-  color: var(--color-cyan);
-}
-.btn-danger:hover:not(:disabled) {
-  border-color: var(--color-rose);
-  color: var(--color-rose);
-  box-shadow: 0 0 20px -8px var(--color-rose);
-}
-
-/* ── Lists and scrolling ───────────────────────────────────────────────── */
-.scroller {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-edge) transparent;
-}
-.scroller::-webkit-scrollbar { width: 8px; height: 8px; }
-.scroller::-webkit-scrollbar-thumb { background: var(--color-edge); }
-.scroller::-webkit-scrollbar-track { background: transparent; }
-
-/* The active row in the sidebar gets a lit left edge rather than a fill —
-   a fill at this contrast either shouts or disappears. */
-.row-active {
-  background: linear-gradient(90deg, #22d3ee14, transparent 60%);
-  box-shadow: inset 2px 0 0 var(--color-cyan);
-  color: var(--color-cyan);
-}
-
-/* ── Waiting ───────────────────────────────────────────────────────────── */
-.pulse-dot {
-  display: inline-block;
-  width: 6px; height: 6px;
-  border-radius: 9999px;
-  background: var(--color-cyan);
-  animation: breathe 1.4s ease-in-out infinite;
-}
-.pulse-dot:nth-child(2) { animation-delay: .2s; }
-.pulse-dot:nth-child(3) { animation-delay: .4s; }
 @keyframes breathe {
   0%, 100% { opacity: .25; transform: scale(.8); }
   50%      { opacity: 1;   transform: scale(1.15); }
 }
 
-/* Prose inside a bot's answer. Markdown is not rendered — this only keeps
-   long text and code readable. */
-.answer { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
-.answer code { font-family: var(--font-mono); font-size: .8125rem; }
-
-@media (prefers-reduced-motion: reduce) {
-  .scanline { display: none; }
-  .pulse-dot { animation: none; opacity: .7; }
-}

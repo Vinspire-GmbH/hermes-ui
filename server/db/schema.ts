@@ -78,6 +78,9 @@ export const members = sqliteTable('members', {
   channelId: text('channel_id').notNull().references(() => channels.id, { onDelete: 'cascade' }),
   kind: text('kind', { enum: ['user', 'bot'] }).notNull(),
   refId: text('ref_id').notNull(),
+  // How far this person has read. Null means "everything is new", which is
+  // right for someone who was just invited.
+  lastReadAt: integer('last_read_at'),
   addedAt: integer('added_at').notNull(),
 }, (t) => [
   unique('members_unique').on(t.channelId, t.kind, t.refId),
@@ -101,8 +104,14 @@ export const messages = sqliteTable('messages', {
   state: text('state', { enum: ['done', 'pending', 'error', 'approval'] })
     .notNull().default('done'),
   // The pending approval as JSON: the command, the tool, the choices offered.
-  // Fetched once, when the run enters the waiting state.
   approval: text('approval'),
+  // What the run is doing right now, as JSON: the last tool it started and how
+  // many it has run. Written by the run watcher; three dots for three minutes
+  // is the difference between "working" and "stuck".
+  progress: text('progress'),
+  // What the answer cost. Filled in when the run completes.
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
   // Identifier of the Hermes run while it is open. Kept in the row so the
   // state survives a restart of this application.
   runId: text('run_id'),
@@ -162,4 +171,33 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
   createdAt: integer('created_at').notNull(),
 }, (t) => [
   index('push_user').on(t.userId),
+])
+
+/**
+ * What the agents cost, per run.
+ *
+ * Two sources meet here. Chat runs report their own usage when they finish, so
+ * those rows are written by this application. Cron runs are logged by Hermes
+ * into a file on the agent host that no endpoint exposes — so the `chat` tool
+ * ships those records here instead, the same direction reports already travel.
+ *
+ * `ref` is the natural key of the original event: the message id for a chat
+ * run, the fire id for a cron run. Unique, so shipping the same audit file
+ * twice changes nothing.
+ */
+export const usage = sqliteTable('usage', {
+  id: text('id').primaryKey(),
+  botId: text('bot_id').notNull().references(() => bots.id, { onDelete: 'cascade' }),
+  kind: text('kind', { enum: ['chat', 'cron'] }).notNull(),
+  ref: text('ref').notNull().unique(),
+  jobId: text('job_id'),
+  jobName: text('job_name'),
+  model: text('model'),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  durationMs: integer('duration_ms'),
+  at: integer('at').notNull(),
+}, (t) => [
+  index('usage_at').on(t.at),
+  index('usage_bot').on(t.botId),
 ])

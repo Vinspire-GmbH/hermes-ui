@@ -47,6 +47,9 @@ export interface RunState {
   waitingForApproval: boolean
   text: string
   session: string | null
+  /** Present once the run has completed. The status endpoint carries it too,
+   *  which is what makes the cost figure survive a restart of this app. */
+  usage: { input: number; output: number } | null
 }
 
 /** Ask after a running job. Nothing here blocks. */
@@ -63,12 +66,16 @@ export async function readRun(botId: string, runId: string): Promise<RunState> {
   // "Run ended with status: waiting_for_approval" in the channel — a dead end
   // where there was in fact a question waiting for an answer.
   const finished = ['completed', 'succeeded', 'failed', 'cancelled', 'error'].includes(status)
+  const u = r?.usage || {}
+  const input = Number(u.input_tokens ?? u.prompt_tokens ?? 0)
+  const output = Number(u.output_tokens ?? u.completion_tokens ?? 0)
   return {
     status,
     finished,
     waitingForApproval: status === 'waiting_for_approval',
     text: extractText(r),
     session: r?.session_id || null,
+    usage: (input || output) ? { input, output } : null,
   }
 }
 
@@ -309,4 +316,14 @@ export async function listJobs(botId: string): Promise<CronJob[]> {
     prompt: j.prompt || null,
     repeat: j.repeat || null,
   }))
+}
+
+/** Ask a run to stop. It winds down rather than dying mid-tool. */
+export async function stopRun(botId: string, runId: string): Promise<void> {
+  const bot = await getBot(botId)
+  await $fetch(`${bot.apiBase.replace(/\/$/, '')}/v1/runs/${runId}/stop`, {
+    method: 'POST',
+    headers: headers(bot),
+    timeout: 20_000,
+  })
 }

@@ -1,6 +1,8 @@
 import { useDb, schema } from '~~/server/db'
 import { requireUser } from '~~/server/utils/auth'
 import { readRun, fetchApproval } from '~~/server/utils/hermes'
+import { watching } from '~~/server/utils/watcher'
+import { id } from '~~/server/utils/ids'
 import { notifyChannel, preview } from '~~/server/utils/push'
 import { eq, and, asc, gt, inArray } from 'drizzle-orm'
 
@@ -53,6 +55,11 @@ async function collectOpenRuns(cid: string) {
       // message in the approval state until somebody answers.
       if (state.waitingForApproval) {
         if (m.state === 'approval') continue
+        // A watcher owns the event stream while it lives, and it writes the
+        // approval itself. Reading the stream here as well would take events
+        // out from under it — so only step in when nobody is watching, which
+        // is what a restart of this application leaves behind.
+        if (watching(m.runId)) continue
         const pending = await fetchApproval(m.authorId, m.runId)
         await db.update(schema.messages).set({
           state: 'approval',
@@ -91,8 +98,25 @@ async function collectOpenRuns(cid: string) {
       const ok = state.status === 'completed' || state.status === 'succeeded'
       const body = state.text || (ok ? '(no answer)' : `Run ended with status: ${state.status}`)
       await db.update(schema.messages).set({
-        body, state: ok ? 'done' : 'error', runId: null, approval: null,
+        body, state: ok ? 'done' : 'error', runId: null, approval: null, progress: null,
+        ...(state.usage
+          ? { inputTokens: state.usage.input, outputTokens: state.usage.output }
+          : {}),
       }).where(eq(schema.messages.id, m.id))
+
+      // The bill, in case no watcher was alive to record it. Unique on `ref`,
+      // so the two paths cannot double-count the same run.
+      if (state.usage) {
+        try {
+          await db.insert(schema.usage).values({
+            id: id('use'), botId: m.authorId, kind: 'chat', ref: `chat:${m.id}`,
+            model: null, inputTokens: state.usage.input,
+            outputTokens: state.usage.output, at: Date.now(),
+          })
+        } catch {
+          // Already recorded by the watcher.
+        }
+      }
 
       // An answer that lands minutes later is exactly what a notification is
       // for — by then nobody is still looking at the window.
