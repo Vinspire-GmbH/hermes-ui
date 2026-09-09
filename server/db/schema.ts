@@ -99,3 +99,24 @@ export const botSessions = sqliteTable('bot_sessions', {
 }, (t) => [
   unique('bot_session_unique').on(t.botId, t.channelId, t.threadRootId),
 ])
+
+/**
+ * Zugangsschlüssel, mit dem ein Bot von außen in einen Kanal schreiben darf —
+ * das Gegenstück zu Slacks Bot-Token. Damit meldet sich ein Cron-Lauf selbst,
+ * ohne dass ein Mensch die Unterhaltung angestoßen hat.
+ *
+ * Gespeichert wird nur der SHA-256 des Schlüssels; der Klartext existiert
+ * einmalig in der Antwort beim Anlegen. `prefix` dient allein dem Wiedererkennen
+ * in der Liste.
+ */
+export const botTokens = sqliteTable('bot_tokens', {
+  id: text('id').primaryKey(),
+  botId: text('bot_id').notNull().references(() => bots.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  prefix: text('prefix').notNull(),
+  label: text('label'),
+  lastUsedAt: integer('last_used_at'),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [
+  index('bot_tokens_bot').on(t.botId),
+])

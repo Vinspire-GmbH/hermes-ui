@@ -76,6 +76,13 @@ function tabellenAnlegen(sqlite: Database.Database) {
       created_at INTEGER NOT NULL);
     CREATE UNIQUE INDEX IF NOT EXISTS bot_session_unique
       ON bot_sessions(bot_id, channel_id, thread_root_id);
+
+    CREATE TABLE IF NOT EXISTS bot_tokens (
+      id TEXT PRIMARY KEY,
+      bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL, label TEXT,
+      last_used_at INTEGER, created_at INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS bot_tokens_bot ON bot_tokens(bot_id);
   `)
 
   // Bestehende Ablagen nachruesten. ADD COLUMN ist billig und idempotent,
