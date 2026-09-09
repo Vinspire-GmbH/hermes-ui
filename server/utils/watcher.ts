@@ -111,9 +111,8 @@ async function follow(opts: {
         case 'run.completed': {
           // The answer itself is still written by the reconciliation pass, so
           // there is one place that decides what a finished message looks
-          // like. What only the event carries is the bill.
-          const usage = event.usage || {}
-          await recordUsage(opts, usage)
+          // like. What only the event carries is the token count.
+          await recordContextSize(opts, event.usage || {})
           return
         }
 
@@ -131,36 +130,29 @@ async function follow(opts: {
   }
 }
 
-async function recordUsage(
-  opts: { messageId: string; botId: string; runId: string },
+/**
+ * Note the size of the context this answer carried.
+ *
+ * Not a cost, and no longer written to the usage table. The api_server
+ * reports `usage.input_tokens` as `session_prompt_tokens`, which is
+ * `input + cache_read + cache_write` — a context size, not fresh input.
+ * Pricing it produced a bill five times too high. The money now comes from
+ * one place only: Hermes' own accounting, shipped by `chat usage`.
+ *
+ * The number stays on the message because it is genuinely useful there —
+ * it shows how much context a turn dragged along — but the interface labels
+ * it as context, not as spend.
+ */
+async function recordContextSize(
+  opts: { messageId: string },
   usage: Record<string, any>,
 ) {
   const input = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0)
   const output = Number(usage.output_tokens ?? usage.completion_tokens ?? 0)
   if (!input && !output) return
-
-  const db = useDb()
-  await db.update(schema.messages)
+  await useDb().update(schema.messages)
     .set({ inputTokens: input, outputTokens: output })
     .where(eq(schema.messages.id, opts.messageId))
-
-  const [bot] = await db.select().from(schema.bots)
-    .where(eq(schema.bots.id, opts.botId)).limit(1)
-  try {
-    await db.insert(schema.usage).values({
-      id: `use_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
-      botId: opts.botId,
-      kind: 'chat',
-      // The message id, so shipping or replaying cannot double-count.
-      ref: `chat:${opts.messageId}`,
-      model: bot?.model || null,
-      inputTokens: input,
-      outputTokens: output,
-      at: Date.now(),
-    })
-  } catch {
-    // Unique on `ref` — already recorded.
-  }
 }
 
 /** Turn a byte stream of SSE frames into parsed events. */

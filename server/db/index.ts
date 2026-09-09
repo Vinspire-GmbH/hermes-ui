@@ -104,9 +104,13 @@ function createTables(sqlite: Database.Database) {
       id TEXT PRIMARY KEY,
       bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
       kind TEXT NOT NULL, ref TEXT NOT NULL UNIQUE,
-      job_id TEXT, job_name TEXT, model TEXT,
+      source TEXT, title TEXT, job_id TEXT, job_name TEXT, model TEXT,
+      api_calls INTEGER NOT NULL DEFAULT 0,
       input_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_write_tokens INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL, cost_source TEXT,
       duration_ms INTEGER, at INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS usage_at ON usage(at);
     CREATE INDEX IF NOT EXISTS usage_bot ON usage(bot_id);
@@ -122,6 +126,24 @@ function createTables(sqlite: Database.Database) {
   addColumn(sqlite, 'messages', 'input_tokens INTEGER')
   addColumn(sqlite, 'messages', 'output_tokens INTEGER')
   addColumn(sqlite, 'members', 'last_read_at INTEGER')
+  for (const col of [
+    'source TEXT', 'title TEXT', 'api_calls INTEGER NOT NULL DEFAULT 0',
+    'cache_read_tokens INTEGER NOT NULL DEFAULT 0',
+    'cache_write_tokens INTEGER NOT NULL DEFAULT 0',
+    'cost_usd REAL', 'cost_source TEXT',
+  ]) addColumn(sqlite, 'usage', col)
+
+  // The first version of this table priced Hermes' `prompt_tokens` at the
+  // input rate, and that property includes cache reads — so every one of
+  // those rows overstates its cost roughly fivefold. They carry no cost
+  // column and no cache split, so they cannot be repaired, only replaced:
+  // dropped here, re-shipped from Hermes' own accounting by `chat usage`.
+  try {
+    const gone = sqlite.prepare('DELETE FROM usage WHERE cost_source IS NULL').run()
+    if (gone.changes) console.log(`[db] dropped ${gone.changes} usage rows from the miscounted era`)
+  } catch {
+    // Table younger than the column — nothing to drop.
+  }
 }
 
 function addColumn(sqlite: Database.Database, table: string, definition: string) {

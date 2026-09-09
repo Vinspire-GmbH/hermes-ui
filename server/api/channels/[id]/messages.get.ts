@@ -2,7 +2,6 @@ import { useDb, schema } from '~~/server/db'
 import { requireUser } from '~~/server/utils/auth'
 import { readRun, fetchApproval } from '~~/server/utils/hermes'
 import { watching } from '~~/server/utils/watcher'
-import { id } from '~~/server/utils/ids'
 import { notifyChannel, preview } from '~~/server/utils/push'
 import { eq, and, asc, gt, inArray } from 'drizzle-orm'
 
@@ -117,19 +116,6 @@ async function collectOpenRuns(cid: string) {
           : {}),
       }).where(eq(schema.messages.id, m.id))
 
-      // The bill, in case no watcher was alive to record it. Unique on `ref`,
-      // so the two paths cannot double-count the same run.
-      if (state.usage) {
-        try {
-          await db.insert(schema.usage).values({
-            id: id('use'), botId: m.authorId, kind: 'chat', ref: `chat:${m.id}`,
-            model: null, inputTokens: state.usage.input,
-            outputTokens: state.usage.output, at: Date.now(),
-          })
-        } catch {
-          // Already recorded by the watcher.
-        }
-      }
 
       // An answer that lands minutes later is exactly what a notification is
       // for — by then nobody is still looking at the window.

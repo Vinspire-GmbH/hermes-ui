@@ -98,81 +98,82 @@ def cmd_kanaele(args):
 
 
 def cmd_usage(args):
-    """Verbrauchszahlen der Cron-Läufe an die Oberfläche schicken.
+    """Kosten der Läufe an die Oberfläche schicken.
 
-    Hermes schreibt je Lauf eine Zeile nach cron/usage_audit.jsonl — Modell,
-    Token, Dauer — und stellt sie über keinen Endpunkt bereit. Ohne diesen
-    Weg zeigt eine Kostenansicht nur den Chat und unterschätzt die Rechnung
-    deutlich; die geplanten Läufe sind die teuren.
+    Quelle ist Hermes' eigene Buchhaltung in state.db, nicht die
+    Verbrauchsdatei des Cron. Der Grund ist ein Fehler, der teuer aussah:
+    `prompt_tokens` in usage_audit.jsonl ist laut agent/usage_pricing.py
+    `input_tokens + cache_read_tokens + cache_write_tokens`. Wer das zum
+    Eingabepreis rechnet, überschätzt die Rechnung um das Fünffache — bei
+    Bob sind 90 % der Eingabe Cache-Treffer, und die kosten ein Zehntel.
 
-    Die Kennung `fire_id` ist drüben eindeutig, also ist mehrfaches Schicken
-    derselben Datei harmlos. Deshalb gibt es hier keine Buchhaltung darüber,
-    was schon übertragen wurde: der einfachere Weg ist auch der robustere.
+    Die Tabelle `sessions` führt die vier Töpfe getrennt und dazu
+    `estimated_cost_usd`, von Hermes mit seiner eigenen Preistabelle
+    gerechnet. Sie deckt außerdem beide Fälle ab: Cron-Läufe und Gespräche
+    liegen dort gleichermaßen. Also eine Quelle statt zwei.
     """
     c = config()
-    pfad = args.datei or os.path.join(
-        os.environ.get("HERMES_HOME") or HOME, "cron", "usage_audit.jsonl")
+    heim = os.environ.get("HERMES_HOME") or HOME
+    pfad = args.datei or os.path.join(heim, "state.db")
     if not os.path.exists(pfad):
-        raise Fehler(f"Keine Verbrauchsdatei unter {pfad}.")
+        raise Fehler(f"Keine Zustandsdatenbank unter {pfad}.")
 
-    grenze = None
+    grenze = 0.0
     if args.tage:
-        from datetime import datetime, timedelta, timezone
-        grenze = datetime.now(timezone.utc) - timedelta(days=args.tage)
+        import time as _t
+        grenze = _t.time() - args.tage * 86400
 
-    # Hermes schreibt in die Verbrauchsdatei nur job_id, keinen Namen. Der
-    # steht daneben in jobs.json, also wird er hier nachgeschlagen — sonst
-    # zeigt die Kostenansicht Kennungen statt Auftragsnamen.
-    namen = {}
-    jobs_pfad = os.path.join(os.path.dirname(pfad), "jobs.json")
-    try:
-        with open(jobs_pfad, encoding="utf-8") as f:
-            d = json.load(f)
-        js = d if isinstance(d, list) else d.get("jobs", d)
-        if isinstance(js, dict):
-            js = list(js.values())
-        for j in js:
-            if j.get("id"):
-                namen[j["id"]] = j.get("name") or j["id"]
-    except Exception:
-        pass          # ohne Namen ist die Ansicht ärmer, nicht kaputt
-
+    import sqlite3
+    # Nur lesend: die Datei gehört dem laufenden Gateway.
+    v = sqlite3.connect(f"file:{pfad}?mode=ro", uri=True)
+    v.row_factory = sqlite3.Row
     saetze = []
-    with open(pfad, encoding="utf-8") as f:
-        for zeile in f:
-            zeile = zeile.strip()
-            if not zeile:
-                continue
-            try:
-                r = json.loads(zeile)
-            except Exception:
-                continue          # eine kaputte Zeile kippt nicht den Lauf
-            if not r.get("fire_id"):
-                continue
-            if grenze:
-                try:
-                    from datetime import datetime
-                    ts = datetime.fromisoformat(r["ts"].replace("Z", "+00:00"))
-                    if ts < grenze:
-                        continue
-                except Exception:
-                    pass
-            if not r.get("job_name") and namen.get(r.get("job_id")):
-                r["job_name"] = namen[r["job_id"]]
-            saetze.append(r)
+    for r in v.execute(
+        """SELECT id, source, title, model, api_call_count,
+                  input_tokens, cache_read_tokens, cache_write_tokens,
+                  output_tokens, estimated_cost_usd, actual_cost_usd,
+                  cost_status, started_at
+           FROM sessions
+           WHERE started_at >= ?
+             AND (input_tokens + cache_read_tokens + cache_write_tokens
+                  + output_tokens) > 0
+           ORDER BY started_at""", (grenze,)):
+        titel = r["title"] or ""
+        # Cron-Sitzungen heißen "Blog vinspire · Aug 19 08:17"; davor steht
+        # der Auftragsname, und den will die Kostenansicht gruppieren.
+        auftrag = titel.split(" · ")[0].strip() if r["source"] == "cron" and " · " in titel else None
+        saetze.append({
+            "ref": f"session:{r['id']}",
+            "source": r["source"],
+            "title": titel[:200] or None,
+            "job_name": auftrag,
+            "model": r["model"],
+            "api_calls": r["api_call_count"] or 0,
+            "input_tokens": r["input_tokens"] or 0,
+            "cache_read_tokens": r["cache_read_tokens"] or 0,
+            "cache_write_tokens": r["cache_write_tokens"] or 0,
+            "output_tokens": r["output_tokens"] or 0,
+            # actual_cost_usd steht nur, wenn der Anbieter eine echte Zahl
+            # geliefert hat; sonst ist die Schätzung das Beste, was es gibt.
+            "cost_usd": r["actual_cost_usd"] if r["actual_cost_usd"] is not None
+                        else r["estimated_cost_usd"],
+            "cost_status": ("actual" if r["actual_cost_usd"] is not None
+                            else (r["cost_status"] or None)),
+            "at_epoch": r["started_at"],
+        })
+    v.close()
 
     if not saetze:
         print("Nichts zu schicken.")
         return
 
-    # In Häppchen, weil der Endpunkt bei 2000 Sätzen abweist und eine
-    # jahrealte Datei das überschreiten kann.
     gesamt = neu = 0
-    for i in range(0, len(saetze), 500):
-        a = api(c, "/api/bot/usage", {"records": saetze[i:i + 500]})
+    for i in range(0, len(saetze), 300):
+        a = api(c, "/api/bot/usage", {"records": saetze[i:i + 300]})
         gesamt += a.get("accepted", 0)
         neu += a.get("stored", 0)
-    print(f"{gesamt} Sätze geschickt, {neu} davon neu.")
+    summe = sum(x["cost_usd"] or 0 for x in saetze)
+    print(f"{gesamt} Sitzungen geschickt, {neu} davon neu, zusammen {summe:.2f} USD.")
 
 
 def main():
@@ -191,9 +192,9 @@ def main():
 
     u.add_parser("channels", aliases=["kanaele"], help="welche Kanäle es gibt")
 
-    v = u.add_parser("usage", help="Verbrauchszahlen der Cron-Läufe übertragen")
+    v = u.add_parser("usage", help="Kosten der Läufe übertragen")
     v.add_argument("--tage", type=int, help="nur Läufe der letzten N Tage")
-    v.add_argument("--datei", help="andere Verbrauchsdatei als cron/usage_audit.jsonl")
+    v.add_argument("--datei", help="andere Zustandsdatenbank als HERMES_HOME/state.db")
 
     args = p.parse_args()
     try:

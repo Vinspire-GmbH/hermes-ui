@@ -1,16 +1,16 @@
 import { useDb, schema } from '~~/server/db'
 import { requireUser } from '~~/server/utils/auth'
-import { cost, pricedModels } from '~~/server/utils/pricing'
+import { pricedModels } from '~~/server/utils/pricing'
 import { gte } from 'drizzle-orm'
 
 /**
  * What the agents cost over a window.
  *
- * Aggregated per bot and per scheduled job, because those are the two
- * questions worth asking: which agent is expensive, and which nightly job is
- * expensive. A run on a model this instance cannot price is counted in tokens
- * and left out of the money total rather than treated as free — `unpriced`
- * says how many.
+ * The figures are Hermes' own — see `server/api/bot/usage.post.ts` for why
+ * they are not computed here. This endpoint only groups them: per agent,
+ * per scheduled job, per day, plus the four token buckets so the shape of the
+ * bill is visible. Cache reads dominating the token count while contributing
+ * little to the cost is the single most useful thing to see here.
  */
 export default defineEventHandler(async (event) => {
   await requireUser(event)
@@ -19,70 +19,87 @@ export default defineEventHandler(async (event) => {
   const since = Date.now() - window * 86400000
 
   const db = useDb()
-  const rows = await db.select().from(schema.usage)
-    .where(gte(schema.usage.at, since))
+  const rows = await db.select().from(schema.usage).where(gte(schema.usage.at, since))
   const bots = await db.select().from(schema.bots)
-  const nameOf = new Map(bots.map(b => [b.id, { name: b.name, color: b.color, model: b.model }]))
+  const meta = new Map(bots.map(b => [b.id, { name: b.name, colour: b.color }]))
 
   interface Bucket {
     key: string
     label: string
     colour?: string
-    kind: string
     runs: number
+    apiCalls: number
     input: number
+    cacheRead: number
+    cacheWrite: number
     output: number
     usd: number
     unpriced: number
   }
+  const empty = (key: string, label: string, colour?: string): Bucket => ({
+    key, label, colour,
+    runs: 0, apiCalls: 0, input: 0, cacheRead: 0, cacheWrite: 0, output: 0,
+    usd: 0, unpriced: 0,
+  })
+
   const perBot = new Map<string, Bucket>()
   const perJob = new Map<string, Bucket>()
-  const perDay = new Map<string, { day: string; usd: number; input: number; output: number }>()
-  let totalUsd = 0, totalIn = 0, totalOut = 0, unpriced = 0
+  const perDay = new Map<string, { day: string; usd: number }>()
+  const total = empty('total', 'total')
+  // How much of the figure comes from where, because the three deserve
+  // different trust: a provider's own number, Hermes' estimate, ours.
+  const bySource: Record<string, number> = {}
 
   for (const r of rows) {
-    const bot = nameOf.get(r.botId)
-    // A cron record carries no model of its own in every Hermes version, so
-    // fall back to what the bot is configured with.
-    const model = r.model || bot?.model || null
-    const usd = cost(model, r.inputTokens, r.outputTokens)
-    if (usd === null) unpriced++
-    totalUsd += usd || 0
-    totalIn += r.inputTokens
-    totalOut += r.outputTokens
-
-    const add = (map: Map<string, Bucket>, key: string, label: string, kind: string) => {
-      const b = map.get(key) || {
-        key, label, colour: bot?.color, kind,
-        runs: 0, input: 0, output: 0, usd: 0, unpriced: 0,
-      }
+    const bot = meta.get(r.botId)
+    const usd = r.costUsd ?? 0
+    const add = (b: Bucket) => {
       b.runs++
+      b.apiCalls += r.apiCalls
       b.input += r.inputTokens
+      b.cacheRead += r.cacheReadTokens
+      b.cacheWrite += r.cacheWriteTokens
       b.output += r.outputTokens
-      b.usd += usd || 0
-      if (usd === null) b.unpriced++
-      map.set(key, b)
+      b.usd += usd
+      if (r.costUsd === null) b.unpriced++
     }
-    add(perBot, r.botId, bot?.name || r.botId, 'bot')
-    if (r.kind === 'cron' && r.jobId) {
-      add(perJob, `${r.botId}:${r.jobId}`, r.jobName || r.jobId, 'cron')
+    add(total)
+
+    const botKey = r.botId
+    if (!perBot.has(botKey)) perBot.set(botKey, empty(botKey, bot?.name || r.botId, bot?.colour))
+    add(perBot.get(botKey)!)
+
+    if (r.kind === 'cron' && (r.jobName || r.jobId)) {
+      const key = `${r.botId}:${r.jobName || r.jobId}`
+      if (!perJob.has(key)) {
+        perJob.set(key, empty(key, r.jobName || r.jobId!, bot?.colour))
+      }
+      add(perJob.get(key)!)
     }
 
     const day = new Date(r.at).toISOString().slice(0, 10)
-    const d = perDay.get(day) || { day, usd: 0, input: 0, output: 0 }
-    d.usd += usd || 0
-    d.input += r.inputTokens
-    d.output += r.outputTokens
+    const d = perDay.get(day) || { day, usd: 0 }
+    d.usd += usd
     perDay.set(day, d)
+
+    const src = r.costSource || 'unknown'
+    bySource[src] = (bySource[src] || 0) + usd
   }
 
-  const bySize = (a: Bucket, b: Bucket) => b.usd - a.usd || b.input - a.input
+  const bySize = (a: Bucket, b: Bucket) => b.usd - a.usd || b.cacheRead - a.cacheRead
+  const days_ = [...perDay.values()].sort((a, b) => a.day.localeCompare(b.day))
+
   return {
     window,
-    total: { usd: totalUsd, input: totalIn, output: totalOut, runs: rows.length, unpriced },
+    total,
+    // Extrapolating from the days that actually carry data, not from the
+    // window: a fresh installation would otherwise look cheap.
+    perMonth: days_.length ? (total.usd / days_.length) * 30 : 0,
+    coveredDays: days_.length,
     bots: [...perBot.values()].sort(bySize),
     jobs: [...perJob.values()].sort(bySize),
-    days: [...perDay.values()].sort((a, b) => a.day.localeCompare(b.day)),
+    days: days_,
+    bySource,
     pricedModels: pricedModels(),
   }
 })

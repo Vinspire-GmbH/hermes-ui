@@ -310,18 +310,37 @@ The page is installable as a PWA; on a phone that is also what makes push work
 at all under iOS.
 
 **Cost.** The Cost page adds up what the agents spent, per agent and per
-scheduled job. Chat runs report their own usage when they finish, so those
-rows are exact. Scheduled runs are the expensive ones — one weekly report
-measured 133,189 tokens — and Hermes logs them into `cron/usage_audit.jsonl`
-on the agent host, which no endpoint exposes. So the `chat` tool ships them:
+scheduled job, and shows the four token buckets beside the money.
+
+The figures are Hermes'. It keeps them in the `sessions` table of each
+profile's `state.db` — the buckets kept apart plus a cost it computed with its
+own price table — and no endpoint exposes it, so the `chat` tool ships it:
 
 ```bash
-chat usage --tage 7      # send the last week's records
+chat usage --tage 7      # send the last week's sessions
 ```
 
-`fire_id` is the key on this side, unique, so shipping the same file twice
-changes nothing and neither end needs to remember what it already sent. Give
-each profile a daily cron job for it and the page stays current.
+`session:<id>` is the key on this side, unique, so an overlapping range
+re-sends harmlessly and a session that grew since the last shipment is brought
+up to date. One daily cron job per profile keeps the page current.
+
+**Why the cost is taken and not computed here.** The first version of this
+page did compute it, from Hermes' cron audit file, and overstated the bill by
+roughly five times. That file reports `prompt_tokens`, and in
+`agent/usage_pricing.py`:
+
+```python
+@property
+def prompt_tokens(self) -> int:
+    return self.input_tokens + self.cache_read_tokens + self.cache_write_tokens
+```
+
+Priced at the input rate that looks enormous. Measured on one agent over 26
+days: 0.02 % fresh input, 90.4 % cache reads, 9.6 % cache writes — and cache
+reads cost a tenth of fresh input. The local price table in
+`server/utils/pricing.ts` survives only as a fallback for a model Hermes could
+not price, and it prices all four buckets separately. `MODEL_PRICES` extends
+it without a deploy.
 
 **Seeing the schedule.** The Schedule page lists every profile's cron jobs,
 sorted by next run across all of them — the question it answers is "what

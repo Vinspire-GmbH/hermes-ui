@@ -1,67 +1,95 @@
 import { useDb, schema } from '~~/server/db'
 import { id } from '~~/server/utils/ids'
 import { botFromKey } from '~~/server/utils/tokens'
+import { cost } from '~~/server/utils/pricing'
 import { and, eq, isNull } from 'drizzle-orm'
 
 /**
- * Receive a profile's cron usage records.
+ * Receive a profile's session accounting.
  *
- * Hermes logs what each scheduled run cost into `cron/usage_audit.jsonl` on
- * the agent host, and no endpoint exposes it — which would leave a cost view
- * covering only the chat and understating the real bill by a wide margin. So
- * the `chat` tool ships those lines here, the same direction reports already
- * travel, authenticated with the same bot key.
+ * Hermes keeps this in the `sessions` table of each profile's `state.db`: the
+ * four token buckets kept apart, and a cost figure it computed with its own
+ * price table. No endpoint exposes it, so the `chat` tool ships it — the same
+ * direction reports already travel, with the same bot key.
  *
- * `fire_id` is the natural key, unique in the table: shipping the whole audit
- * file every day is therefore harmless and needs no bookkeeping on either side.
+ * The cost is taken, not derived. Deriving it here is what produced a figure
+ * five times too high: Hermes' cron audit reports `prompt_tokens`, which is
+ * `input + cache_read + cache_write`, and pricing that sum at the input rate
+ * ignores that cache reads cost a tenth. Local pricing survives only as the
+ * fallback for a model Hermes could not price.
+ *
+ * `ref` is `session:<id>`, unique — so shipping an overlapping range is free,
+ * and a record whose cost arrives later still gets filled in.
  */
 export default defineEventHandler(async (event) => {
   const bot = await botFromKey(event)
   const body = await readBody<{ records?: any[] }>(event)
   const records = Array.isArray(body?.records) ? body.records : []
-  if (!records.length) return { accepted: 0, stored: 0 }
-  if (records.length > 2000) {
-    throw createError({ statusCode: 413, statusMessage: 'At most 2000 records per call' })
+  if (!records.length) return { accepted: 0, stored: 0, updated: 0 }
+  if (records.length > 500) {
+    throw createError({ statusCode: 413, statusMessage: 'At most 500 records per call' })
   }
 
   const db = useDb()
   let stored = 0
+  let updated = 0
+
   for (const r of records) {
-    const ref = r?.fire_id ? `cron:${r.fire_id}` : null
+    const ref = typeof r?.ref === 'string' && r.ref ? r.ref : null
     if (!ref) continue
-    const at = Date.parse(r.ts || '') || Date.now()
+
+    const buckets = {
+      input: Number(r.input_tokens || 0),
+      cacheRead: Number(r.cache_read_tokens || 0),
+      cacheWrite: Number(r.cache_write_tokens || 0),
+      output: Number(r.output_tokens || 0),
+    }
+    const model = r.model || bot.model || null
+
+    // Hermes' figure wins. Only when it has none does this application price
+    // the four buckets itself, and it says so through `costSource`.
+    let costUsd: number | null = typeof r.cost_usd === 'number' ? r.cost_usd : null
+    let costSource: string = r.cost_status === 'actual' ? 'actual' : 'estimated'
+    if (costUsd === null) {
+      costUsd = cost(model, buckets)
+      costSource = costUsd === null ? 'unpriced' : 'local'
+    }
+
+    const at = r.at_epoch
+      ? Math.round(Number(r.at_epoch) * 1000)
+      : (Date.parse(r.ts || '') || Date.now())
+
+    const values = {
+      botId: bot.id,
+      kind: r.source === 'cron' ? ('cron' as const) : ('chat' as const),
+      source: r.source || null,
+      title: r.title || null,
+      jobId: r.job_id || null,
+      jobName: r.job_name || null,
+      model,
+      apiCalls: Number(r.api_calls || 0),
+      inputTokens: buckets.input,
+      cacheReadTokens: buckets.cacheRead,
+      cacheWriteTokens: buckets.cacheWrite,
+      outputTokens: buckets.output,
+      costUsd,
+      costSource,
+      durationMs: Number(r.duration_ms || 0) || null,
+      at,
+    }
+
     try {
-      await db.insert(schema.usage).values({
-        id: id('use'),
-        botId: bot.id,
-        kind: 'cron',
-        ref,
-        jobId: r.job_id || null,
-        jobName: r.job_name || null,
-        model: r.model || null,
-        inputTokens: Number(r.prompt_tokens || 0),
-        outputTokens: Number(r.completion_tokens || 0),
-        durationMs: Number(r.duration_ms || 0) || null,
-        at,
-      })
+      await db.insert(schema.usage).values({ id: id('use'), ref, ...values })
       stored++
     } catch {
-      // Unique on `ref` — this run was already shipped. Fill in a name or
-      // model that a later shipment knows and the first one did not: Hermes
-      // logs only `job_id`, so the name arrives once the tool learned to look
-      // it up. Nothing else is touched, so a re-send cannot rewrite history.
-      if (r.job_name || r.model) {
-        await db.update(schema.usage)
-          .set({
-            ...(r.job_name ? { jobName: r.job_name } : {}),
-            ...(r.model ? { model: r.model } : {}),
-          })
-          .where(and(
-            eq(schema.usage.ref, ref),
-            isNull(schema.usage.jobName),
-          ))
-      }
+      // Already here. A session grows while it is open — more calls, more
+      // tokens, a higher cost — so the row is brought up to date rather than
+      // left at whatever the first shipment saw. `at` and `ref` stay put.
+      const { at: _ignored, ...movable } = values
+      await db.update(schema.usage).set(movable)
+        .where(eq(schema.usage.ref, ref))
+      updated++
     }
   }
-  return { accepted: records.length, stored }
+  return { accepted: records.length, stored, updated }
 })

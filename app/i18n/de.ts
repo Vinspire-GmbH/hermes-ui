@@ -36,7 +36,7 @@ export default {
     stop: 'abbrechen',
     stopping: 'bricht ab…',
     step: 'Schritt {n}',
-    tokens: '{input} / {output} Token',
+    context: '{input} Token Kontext, {output} aus',
     thinking: 'denkt nach…',
     failed: 'fehlgeschlagen',
     thread: 'Faden',
@@ -92,19 +92,32 @@ export default {
     title: 'Kosten',
     subtitle: 'Was die Agenten verbraucht haben.',
     window: 'Letzte {days} Tage',
-    total: 'Gesamt',
-    tokens: '{input} ein / {output} aus',
-    runs: '{count} L\u00e4ufe',
+    perMonth: '\u2248 {amount} im Monat',
+    extrapolated: 'aus {days} Tagen mit Daten',
+    tokens: 'Token',
+    fresh: 'frische Eingabe',
+    cacheRead: 'Cache gelesen',
+    cacheWrite: 'Cache geschrieben',
+    output: 'Ausgabe',
+    calls: '{count} Modellaufrufe',
+    runs: '{count} Sitzungen',
     perBot: 'Nach Agent',
     perJob: 'Nach geplantem Auftrag',
     perDay: 'Pro Tag',
-    unpricedNote: '{count} L\u00e4ufe auf einem Modell, f\u00fcr das hier kein Preis steht. '
-      + 'Die Token sind gez\u00e4hlt, die Kosten nicht — \u00fcber MODEL_PRICES nachtragen.',
-    priced: 'Bepreiste Modelle: {models}',
-    none: 'Noch nichts erfasst. Chat-L\u00e4ufe erscheinen, sobald sie fertig sind; geplante '
-      + 'L\u00e4ufe, sobald ein Profil seine Verbrauchsdatei schickt.',
-    chatOnly: 'Chat',
-    cron: 'geplant',
+    source: 'Woher die Zahlen kommen',
+    sourceActual: 'vom Anbieter gemeldet',
+    sourceEstimated: 'von Hermes gerechnet',
+    sourceLocal: 'hier als Rückfall gerechnet',
+    sourceUnpriced: 'kein Preis für das Modell',
+    unpricedNote: '{count} Sitzungen auf einem Modell, f\u00fcr das hier kein Preis '
+      + 'steht. Die Token sind gez\u00e4hlt, die Kosten nicht — \u00fcber MODEL_PRICES '
+      + 'nachtragen.',
+    cacheNote: 'Cache-Treffer beherrschen die Tokenzahl und kaum die Kosten: sie '
+      + 'laufen zu einem Zehntel der frischen Eingabe. Sie als Eingabe zu bepreisen '
+      + 'hat eine fr\u00fchere Fassung dieser Seite um das F\u00fcnffache irren lassen.',
+    priced: 'Hier bepreist: {models}',
+    none: 'Noch nichts erfasst. Ein Profil schickt seine Buchhaltung mit '
+      + '`chat usage`; der t\u00e4gliche Auftrag tut das um 3:40.',
   },
   admin: {
     title: 'Verwaltung',

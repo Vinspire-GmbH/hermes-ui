@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, unique } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, real, index, unique } from 'drizzle-orm/sqlite-core'
 
 /**
  * People. Passwords are stored as scrypt hashes from nuxt-auth-utils, never
@@ -174,27 +174,47 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
 ])
 
 /**
- * What the agents cost, per run.
+ * What the agents cost, per session.
  *
- * Two sources meet here. Chat runs report their own usage when they finish, so
- * those rows are written by this application. Cron runs are logged by Hermes
- * into a file on the agent host that no endpoint exposes — so the `chat` tool
- * ships those records here instead, the same direction reports already travel.
+ * One source, and it is Hermes' own accounting: the `sessions` table of each
+ * profile's `state.db`, shipped here by the `chat` tool. That covers both
+ * scheduled runs and conversations, and it carries the figure Hermes computed
+ * with its own price table.
  *
- * `ref` is the natural key of the original event: the message id for a chat
- * run, the fire id for a cron run. Unique, so shipping the same audit file
- * twice changes nothing.
+ * The reason it is not computed here deserves recording, because the first
+ * version of this table got it wrong by a factor of five. Hermes' cron audit
+ * file reports `prompt_tokens`, and in `agent/usage_pricing.py` that property
+ * is `input_tokens + cache_read_tokens + cache_write_tokens`. Priced at the
+ * input rate it looks enormous — but 90 % of it is cache reads, which cost a
+ * tenth. Hence the four buckets below, kept apart, and a cost figure taken
+ * rather than derived.
+ *
+ * `ref` is `session:<id>`, unique, so re-shipping the same range is free.
  */
 export const usage = sqliteTable('usage', {
   id: text('id').primaryKey(),
   botId: text('bot_id').notNull().references(() => bots.id, { onDelete: 'cascade' }),
   kind: text('kind', { enum: ['chat', 'cron'] }).notNull(),
   ref: text('ref').notNull().unique(),
+  // Where the session came from, verbatim from Hermes: cron, api_server,
+  // slack, cli, tui. More telling than the two-value `kind`.
+  source: text('source'),
+  title: text('title'),
   jobId: text('job_id'),
   jobName: text('job_name'),
   model: text('model'),
+  apiCalls: integer('api_calls').notNull().default(0),
   inputTokens: integer('input_tokens').notNull().default(0),
+  cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+  cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),
+  // What it cost, in USD. Null only when Hermes had no price for the model.
+  costUsd: real('cost_usd'),
+  // 'actual' when the provider reported a real figure, 'estimated' when
+  // Hermes computed it, 'local' when this application had to fall back to its
+  // own table. The interface says which, because the three deserve different
+  // trust.
+  costSource: text('cost_source'),
   durationMs: integer('duration_ms'),
   at: integer('at').notNull(),
 }, (t) => [

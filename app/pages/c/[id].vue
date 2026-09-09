@@ -225,8 +225,11 @@ function time(ts: number) {
             <p v-else-if="m.state === 'error'" class="answer text-sm text-rose">{{ m.body }}</p>
             <MarkdownText v-else-if="m.authorKind === 'bot'" :text="m.body" class="text-sm" />
             <p v-else class="answer text-sm text-ink">{{ m.body }}</p>
+            <!-- Context size, not cost. The api_server reports this as
+                 input + cache reads + cache writes; the money is on the Cost
+                 page, from Hermes' own accounting. -->
             <p v-if="m.inputTokens" class="meta mt-1">
-              {{ t('chat.tokens', {
+              {{ t('chat.context', {
                 input: m.inputTokens.toLocaleString(locale),
                 output: (m.outputTokens || 0).toLocaleString(locale),
               }) }}
