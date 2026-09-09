@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --color-grund: #14161c;
+  --color-seite: #1b1e27;
+  --color-flaeche: #232733;
+  --color-rand: #2f3542;
+  --color-akzent: #4fd1c5;
+  --color-text: #e6e8ee;
+  --color-leise: #9aa2b1;
+}
+
+html, body, #__nuxt { height: 100%; }
+body {
+  background: var(--color-grund);
+  color: var(--color-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+/* Der Verlauf soll unten kleben, wie in jedem Chat. */
+.verlauf { scrollbar-width: thin; scrollbar-color: var(--color-rand) transparent; }

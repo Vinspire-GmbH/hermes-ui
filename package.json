@@ -1,0 +1,24 @@
+{
+  "name": "hermes-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2",
+    "nuxt": "^4.5.2",
+    "nuxt-auth-utils": "^0.5.30",
+    "vue": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "drizzle-kit": "^0.31.10",
+    "tailwindcss": "^4.1.18"
+  }
+}
