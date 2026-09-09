@@ -138,7 +138,9 @@ export async function fetchApproval(
             found = {
               command: event.command || undefined,
               tool: event.tool || event.tool_name || undefined,
-              reason: event.reason || event.explanation || undefined,
+              // Measured against a real approval: the field is called
+              // `description`. The other two are guesses kept as fallbacks.
+              reason: event.description || event.reason || event.explanation || undefined,
               choices: Array.isArray(event.choices) && event.choices.length
                 ? event.choices
                 : ['once', 'session', 'always', 'deny'],
