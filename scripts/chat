@@ -1,0 +1,121 @@
+#!/usr/bin/python3
+"""chat — als Bot in die Kanäle der Hermes-Oberfläche schreiben.
+
+Das Gegenstück zu `--deliver slack:C…`: Hermes kann von sich aus nur die
+Plattformen seines `Platform`-Enums bedienen, und die eigene Oberfläche ist
+keine davon. Also meldet sich der Bot selbst, mit seinem Schreibschlüssel —
+so kommen Cron-Berichte in einen Kanal, ohne dass jemand gefragt hat.
+
+Ohne Fremdbibliotheken, mit Absicht: die Umgebung eines Werkzeugaufrufs ist
+bereinigt, dort gibt es nichts außer der Standardbibliothek.
+
+Zugangsdaten: $HOME/.config/chat/config.json (0600)
+  { "base_url": "https://chat.example.com",
+    "token":    "hui-…",
+    "kanal":    "allgemein" }
+
+Den Schlüssel stellt die Oberfläche aus: POST /api/bots/<id>/tokens.
+`kanal` ist der Standardkanal und darf fehlen; dann ist --kanal Pflicht.
+Einzelheiten in VERBINDEN.md.
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+HOME = os.environ.get("HOME") or "/opt/data/home"
+CONFIG = os.path.join(HOME, ".config", "chat", "config.json")
+
+
+class Fehler(Exception):
+    pass
+
+
+def config():
+    if not os.path.exists(CONFIG):
+        raise Fehler(f"Keine Zugangsdaten unter {CONFIG}. Die legt Marcel an.")
+    with open(CONFIG, encoding="utf-8") as f:
+        c = json.load(f)
+    for k in ("base_url", "token"):
+        if not c.get(k):
+            raise Fehler(f"In {CONFIG} fehlt: {k}")
+    return c
+
+
+def api(c, pfad, daten=None):
+    url = f"{c['base_url'].rstrip('/')}{pfad}"
+    leib = json.dumps(daten).encode("utf-8") if daten is not None else None
+    req = urllib.request.Request(url, data=leib, method="POST" if leib else "GET")
+    req.add_header("Authorization", f"Bearer {c['token']}")
+    req.add_header("Accept", "application/json")
+    if leib:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=45) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        roh = e.read().decode("utf-8", "replace")
+        try:
+            grund = json.loads(roh).get("statusMessage") or json.loads(roh).get("message") or roh
+        except Exception:
+            grund = roh[:300]
+        if e.code == 401:
+            raise Fehler(f"Die Oberfläche weist den Schlüssel ab: {grund}")
+        raise Fehler(f"Oberfläche antwortet {e.code}: {grund}")
+    except urllib.error.URLError as e:
+        raise Fehler(f"Oberfläche nicht erreichbar: {e.reason}")
+
+
+def cmd_post(args):
+    c = config()
+    kanal = args.kanal or c.get("kanal")
+    if not kanal:
+        raise Fehler("Kein Kanal angegeben und keiner in der Konfiguration.")
+
+    text = " ".join(args.text).strip()
+    if not text or text == "-":
+        # Für lange Berichte: `… | chat post -`. Ein Bericht mit Zeilenumbrüchen
+        # gehört nicht in ein Shell-Argument.
+        text = sys.stdin.read().strip()
+    if not text:
+        raise Fehler("Nichts zu melden — der Text ist leer.")
+
+    daten = {"kanal": kanal, "text": text}
+    if args.faden:
+        daten["faden"] = args.faden
+    a = api(c, "/api/bot/messages", daten)
+    print(f"Gesendet an #{a['kanal']} als {a['bot']} ({a['id']}).")
+
+
+def cmd_kanaele(args):
+    c = config()
+    for k in api(c, "/api/bot/channels"):
+        print(f"  #{k['slug']:<24} {k['name']}" + (f" — {k['topic']}" if k.get("topic") else ""))
+
+
+def main():
+    import argparse
+    p = argparse.ArgumentParser(prog="chat", description="Als Bot in die Kanäle der Hermes-Oberfläche schreiben.")
+    u = p.add_subparsers(dest="befehl", required=True)
+
+    s = u.add_parser("post", help="eine Nachricht in einen Kanal schreiben")
+    s.add_argument("text", nargs="*", help="der Text; '-' oder leer liest von stdin")
+    s.add_argument("--kanal", help="Kanalname ohne #; Standard steht in der Konfiguration")
+    s.add_argument("--faden", help="Kennung einer Nachricht, unter die geantwortet wird")
+
+    u.add_parser("kanaele", help="welche Kanäle es gibt")
+
+    args = p.parse_args()
+    try:
+        {"post": cmd_post, "kanaele": cmd_kanaele}[args.befehl](args)
+    except Fehler as e:
+        print(f"chat: {e}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    main()
