@@ -27,5 +27,6 @@
   "description": "A self-hosted chat console for Hermes agents: channels, direct messages, approvals, schedule and cost.",
   "engines": {
     "node": ">=20.0.0"
-  }
+  },
+  "license": "MIT"
 }

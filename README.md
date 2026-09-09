@@ -167,3 +167,7 @@ user, but it is the largest privilege in the application. Leave the flag off
 unless you want it.
 
 Found something? Please report it privately rather than in a public issue.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
