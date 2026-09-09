@@ -1,8 +1,8 @@
 import { sqliteTable, text, integer, index, unique } from 'drizzle-orm/sqlite-core'
 
 /**
- * Menschen. Passwörter liegen als scrypt-Hash von nuxt-auth-utils vor,
- * niemals im Klartext.
+ * People. Passwords are stored as scrypt hashes from nuxt-auth-utils, never
+ * in the clear.
  */
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -10,14 +10,32 @@ export const users = sqliteTable('users', {
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
   role: text('role', { enum: ['admin', 'member'] }).notNull().default('member'),
+  locale: text('locale', { enum: ['en', 'de'] }),
   createdAt: integer('created_at').notNull(),
 })
 
 /**
- * Ein Bot ist ein Hermes-Profil, erreichbar über dessen api_server-Plattform.
+ * An invitation to join. Only the token's SHA-256 is stored, so a leaked
+ * backup hands out no working links.
+ */
+export const invites = sqliteTable('invites', {
+  id: text('id').primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  email: text('email'),
+  role: text('role', { enum: ['admin', 'member'] }).notNull().default('member'),
+  invitedBy: text('invited_by').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+  acceptedAt: integer('accepted_at'),
+  acceptedBy: text('accepted_by'),
+  createdAt: integer('created_at').notNull(),
+})
+
+/**
+ * A bot is a Hermes profile, reachable through that profile's api_server
+ * platform.
  *
- * `apiBase` und `apiKey` bleiben serverseitig — der Browser sieht sie nie.
- * Ein Profil kann mehrere Bots tragen, deshalb ist `profile` kein Schlüssel.
+ * `apiBase` and `apiKey` stay server-side — the browser never sees them. One
+ * profile can carry several bots, so `profile` is not a key.
  */
 export const bots = sqliteTable('bots', {
   id: text('id').primaryKey(),
@@ -27,16 +45,19 @@ export const bots = sqliteTable('bots', {
   apiBase: text('api_base').notNull(),
   apiKey: text('api_key').notNull(),
   model: text('model'),
-  color: text('color').notNull().default('#4f8a8b'),
+  color: text('color').notNull().default('#22d3ee'),
   description: text('description'),
+  // A bot that may run shell commands on its host. Used to create Hermes
+  // profiles and write SOUL.md from here; see server/utils/operator.ts.
+  operator: integer('operator').notNull().default(0),
   active: integer('active').notNull().default(1),
   createdAt: integer('created_at').notNull(),
 })
 
 /**
- * Kanäle und Direktnachrichten liegen in derselben Tabelle: eine DM ist ein
- * Kanal mit `kind = 'dm'` und genau zwei Mitgliedern. Das erspart eine zweite
- * Nachrichtentabelle und damit die Hälfte aller Sonderfälle.
+ * Channels and direct messages share one table: a DM is a channel with
+ * `kind = 'dm'` and exactly two members. That saves a second message table
+ * and with it half of all special cases.
  */
 export const channels = sqliteTable('channels', {
   id: text('id').primaryKey(),
@@ -49,8 +70,8 @@ export const channels = sqliteTable('channels', {
 })
 
 /**
- * Mitgliedschaft, für Menschen und Bots gleichermaßen. Ein Bot antwortet in
- * einem Kanal nur, wenn er Mitglied ist und erwähnt wird — genau wie in Slack.
+ * Membership, for people and bots alike. In a channel a bot answers only when
+ * it is a member and gets mentioned — exactly like Slack.
  */
 export const members = sqliteTable('members', {
   id: text('id').primaryKey(),
@@ -64,8 +85,8 @@ export const members = sqliteTable('members', {
 ])
 
 /**
- * Nachrichten. `threadRootId` ist null für Beiträge im Kanal selbst und zeigt
- * sonst auf die Nachricht, unter der der Faden hängt.
+ * Messages. `threadRootId` is null for posts in the channel itself and
+ * otherwise points at the message the thread hangs under.
  */
 export const messages = sqliteTable('messages', {
   id: text('id').primaryKey(),
@@ -74,10 +95,10 @@ export const messages = sqliteTable('messages', {
   authorKind: text('author_kind', { enum: ['user', 'bot', 'system'] }).notNull(),
   authorId: text('author_id').notNull(),
   body: text('body').notNull(),
-  // Läuft der Agent noch, steht hier 'pending'; bei einem Fehler 'error'.
+  // While the agent is working this reads 'pending'; on failure 'error'.
   state: text('state', { enum: ['done', 'pending', 'error'] }).notNull().default('done'),
-  // Kennung des Hermes-Laufs, solange er offen ist. Steht sie in der Zeile,
-  // kann der Zustand nach einem Neustart der Anwendung weiterverfolgt werden.
+  // Identifier of the Hermes run while it is open. Kept in the row so the
+  // state survives a restart of this application.
   runId: text('run_id'),
   createdAt: integer('created_at').notNull(),
 }, (t) => [
@@ -86,8 +107,8 @@ export const messages = sqliteTable('messages', {
 ])
 
 /**
- * Die Brücke zu Hermes: je Bot und Gesprächsstrang eine Sitzung, damit der
- * Agent den Verlauf kennt. Ohne das beginnt jede Nachricht bei null.
+ * The bridge to Hermes: one session per bot and conversation strand, so the
+ * agent knows the history. Without it every message would start from nothing.
  */
 export const botSessions = sqliteTable('bot_sessions', {
   id: text('id').primaryKey(),
@@ -101,13 +122,12 @@ export const botSessions = sqliteTable('bot_sessions', {
 ])
 
 /**
- * Zugangsschlüssel, mit dem ein Bot von außen in einen Kanal schreiben darf —
- * das Gegenstück zu Slacks Bot-Token. Damit meldet sich ein Cron-Lauf selbst,
- * ohne dass ein Mensch die Unterhaltung angestoßen hat.
+ * The write key a bot uses to post into a channel from outside — the
+ * counterpart to Slack's bot token. This is how a cron run reports without
+ * anyone having started the conversation.
  *
- * Gespeichert wird nur der SHA-256 des Schlüssels; der Klartext existiert
- * einmalig in der Antwort beim Anlegen. `prefix` dient allein dem Wiedererkennen
- * in der Liste.
+ * Only the key's SHA-256 is stored; the plaintext exists once, in the response
+ * that creates it. `prefix` exists only so a key can be recognised in a list.
  */
 export const botTokens = sqliteTable('bot_tokens', {
   id: text('id').primaryKey(),
@@ -119,4 +139,21 @@ export const botTokens = sqliteTable('bot_tokens', {
   createdAt: integer('created_at').notNull(),
 }, (t) => [
   index('bot_tokens_bot').on(t.botId),
+])
+
+/**
+ * One Web Push endpoint per browser a person uses. A subscription dies when
+ * the browser discards it, so `failedAt` marks endpoints the push service has
+ * rejected as gone; they are deleted rather than retried forever.
+ */
+export const pushSubscriptions = sqliteTable('push_subscriptions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  userAgent: text('user_agent'),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [
+  index('push_user').on(t.userId),
 ])

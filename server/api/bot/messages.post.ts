@@ -1,61 +1,76 @@
 import { useDb, schema } from '~~/server/db'
 import { id } from '~~/server/utils/ids'
-import { botAusSchluessel } from '~~/server/utils/bottoken'
+import { botFromKey } from '~~/server/utils/tokens'
+import { notifyChannel, preview } from '~~/server/utils/push'
 import { eq, or, and } from 'drizzle-orm'
 
 /**
- * Ein Bot schreibt von außen in einen Kanal — der Weg für Cron-Meldungen.
+ * A bot writes into a channel from outside — the route cron reports take.
  *
  *   curl -H "Authorization: Bearer hui-…" -H 'Content-Type: application/json' \
- *        -d '{"kanal":"buchhaltung","text":"Fertig. 3 Rechnungen abgelegt."}' \
- *        https://chat.vinspi.re/api/bot/messages
+ *        -d '{"channel":"general","text":"Done. Filed 3 invoices."}' \
+ *        https://chat.example.com/api/bot/messages
  *
- * Anders als bei einer Nachricht aus dem Browser wird hier **kein** Agentenlauf
- * angestoßen: der Bot hat schon gearbeitet, er berichtet nur. Erwähnungen im
- * Text lösen deshalb bewusst nichts aus, sonst könnte sich eine Meldung selbst
- * beantworten.
+ * Unlike a message from the browser this starts **no** agent run: the bot has
+ * already done the work, it is only reporting. Mentions in the text therefore
+ * trigger nothing on purpose — otherwise a report could answer itself.
  *
- * Fehlt die Mitgliedschaft, wird sie angelegt statt die Meldung abzuweisen. Ein
- * um 7:00 verlorener Bericht ist teurer als ein Bot, der in einem Kanal auftaucht,
- * in den ihn niemand eingeladen hat — und wer ihn dort nicht will, wirft ihn raus.
+ * If membership is missing it gets created rather than the message rejected. A
+ * report lost at 07:00 costs more than a bot turning up in a channel nobody
+ * invited it to — and whoever does not want it there removes it.
+ *
+ * `kanal` is still accepted alongside `channel`: the field was called that in
+ * the first release, and the keys sitting in `config.json` on the agent hosts
+ * are not worth a broken cron run.
  */
 export default defineEventHandler(async (event) => {
-  const bot = await botAusSchluessel(event)
-  const k = await readBody<{ kanal?: string; channel?: string; text?: string; faden?: string }>(event)
-  const kanalName = (k.kanal || k.channel || '').replace(/^#/, '').trim()
-  const text = (k.text || '').trim()
-  if (!kanalName) throw createError({ statusCode: 400, statusMessage: 'Feld fehlt: kanal' })
-  if (!text) throw createError({ statusCode: 400, statusMessage: 'Feld fehlt: text' })
+  const bot = await botFromKey(event)
+  const input = await readBody<{
+    channel?: string; kanal?: string; text?: string; thread?: string; faden?: string
+  }>(event)
+  const channelName = (input.channel || input.kanal || '').replace(/^#/, '').trim()
+  const text = (input.text || '').trim()
+  const thread = input.thread || input.faden || null
+  if (!channelName) throw createError({ statusCode: 400, statusMessage: 'Field missing: channel' })
+  if (!text) throw createError({ statusCode: 400, statusMessage: 'Field missing: text' })
 
   const db = useDb()
-  const [kanal] = await db.select().from(schema.channels)
-    .where(or(eq(schema.channels.slug, kanalName), eq(schema.channels.id, kanalName)))
+  const [channel] = await db.select().from(schema.channels)
+    .where(or(eq(schema.channels.slug, channelName), eq(schema.channels.id, channelName)))
     .limit(1)
-  if (!kanal) {
-    const alle = await db.select({ slug: schema.channels.slug }).from(schema.channels)
+  if (!channel) {
+    const all = await db.select({ slug: schema.channels.slug }).from(schema.channels)
       .where(eq(schema.channels.kind, 'channel'))
     throw createError({
       statusCode: 404,
-      statusMessage: `Kanal "${kanalName}" gibt es nicht. Vorhanden: ${alle.map(a => a.slug).join(', ') || '—'}`,
+      statusMessage: `No channel "${channelName}". Available: ${all.map(a => a.slug).join(', ') || '—'}`,
     })
   }
 
-  const [mitglied] = await db.select().from(schema.members).where(and(
-    eq(schema.members.channelId, kanal.id),
+  const [member] = await db.select().from(schema.members).where(and(
+    eq(schema.members.channelId, channel.id),
     eq(schema.members.kind, 'bot'),
     eq(schema.members.refId, bot.id),
   )).limit(1)
-  if (!mitglied) {
+  if (!member) {
     await db.insert(schema.members).values({
-      id: id('m'), channelId: kanal.id, kind: 'bot', refId: bot.id, addedAt: Date.now(),
+      id: id('m'), channelId: channel.id, kind: 'bot', refId: bot.id, addedAt: Date.now(),
     })
   }
 
   const mid = id('msg')
   await db.insert(schema.messages).values({
-    id: mid, channelId: kanal.id, threadRootId: k.faden || null,
+    id: mid, channelId: channel.id, threadRootId: thread,
     authorKind: 'bot', authorId: bot.id, body: text,
     state: 'done', createdAt: Date.now(),
   })
-  return { id: mid, kanal: kanal.slug, bot: bot.slug }
+
+  notifyChannel(channel.id, {
+    title: `#${channel.name} · ${bot.name}`,
+    body: preview(text),
+    url: `/c/${channel.id}`,
+    tag: channel.id,
+  }).catch(() => {})
+
+  return { id: mid, channel: channel.slug, bot: bot.slug }
 })

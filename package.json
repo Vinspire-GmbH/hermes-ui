@@ -14,7 +14,8 @@
     "drizzle-orm": "^0.45.2",
     "nuxt": "^4.5.2",
     "nuxt-auth-utils": "^0.5.30",
-    "vue": "latest"
+    "vue": "latest",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",

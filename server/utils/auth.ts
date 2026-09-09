@@ -1,20 +1,22 @@
 import { useDb, schema } from '../db'
 import { eq } from 'drizzle-orm'
 
-/** Der angemeldete Mensch, oder ein 401. Jeder Endpunkt geht hierdurch. */
-export async function angemeldet(event: any) {
-  const sitzung = await getUserSession(event)
-  const uid = (sitzung as any)?.user?.id
-  if (!uid) throw createError({ statusCode: 401, statusMessage: 'Nicht angemeldet' })
+/** The signed-in person, or a 401. Every endpoint goes through here. */
+export async function requireUser(event: any) {
+  const session = await getUserSession(event)
+  const uid = (session as any)?.user?.id
+  if (!uid) throw createError({ statusCode: 401, statusMessage: 'Not signed in' })
   const db = useDb()
-  const [u] = await db.select().from(schema.users).where(eq(schema.users.id, uid)).limit(1)
-  if (!u) throw createError({ statusCode: 401, statusMessage: 'Benutzer entfernt' })
-  return u
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.id, uid)).limit(1)
+  if (!user) throw createError({ statusCode: 401, statusMessage: 'Account removed' })
+  return user
 }
 
-/** Für alles, was andere betrifft: Benutzer anlegen, Bots verdrahten. */
-export async function istAdmin(event: any) {
-  const u = await angemeldet(event)
-  if (u.role !== 'admin') throw createError({ statusCode: 403, statusMessage: 'Nur für Administratoren' })
-  return u
+/** For anything that affects other people: inviting, wiring up bots. */
+export async function requireAdmin(event: any) {
+  const user = await requireUser(event)
+  if (user.role !== 'admin') {
+    throw createError({ statusCode: 403, statusMessage: 'Administrators only' })
+  }
+  return user
 }

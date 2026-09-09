@@ -12,10 +12,12 @@ bereinigt, dort gibt es nichts außer der Standardbibliothek.
 Zugangsdaten: $HOME/.config/chat/config.json (0600)
   { "base_url": "https://chat.example.com",
     "token":    "hui-…",
-    "kanal":    "allgemein" }
+    "channel":  "general" }
 
 Den Schlüssel stellt die Oberfläche aus: POST /api/bots/<id>/tokens.
-`kanal` ist der Standardkanal und darf fehlen; dann ist --kanal Pflicht.
+`channel` ist der Standardkanal und darf fehlen; dann ist --channel Pflicht.
+Der alte Name `kanal` wird weiter gelesen: die Datei liegt auf fremden
+Servern, und ein Cron-Lauf soll nicht an einer Umbenennung scheitern.
 Einzelheiten in CONNECTING.md.
 """
 
@@ -70,7 +72,7 @@ def api(c, pfad, daten=None):
 
 def cmd_post(args):
     c = config()
-    kanal = args.kanal or c.get("kanal")
+    kanal = args.channel or c.get("channel") or c.get("kanal")
     if not kanal:
         raise Fehler("Kein Kanal angegeben und keiner in der Konfiguration.")
 
@@ -82,11 +84,11 @@ def cmd_post(args):
     if not text:
         raise Fehler("Nichts zu melden — der Text ist leer.")
 
-    daten = {"kanal": kanal, "text": text}
-    if args.faden:
-        daten["faden"] = args.faden
+    daten = {"channel": kanal, "text": text}
+    if args.thread:
+        daten["thread"] = args.thread
     a = api(c, "/api/bot/messages", daten)
-    print(f"Gesendet an #{a['kanal']} als {a['bot']} ({a['id']}).")
+    print(f"Gesendet an #{a['channel']} als {a['bot']} ({a['id']}).")
 
 
 def cmd_kanaele(args):
@@ -102,14 +104,19 @@ def main():
 
     s = u.add_parser("post", help="eine Nachricht in einen Kanal schreiben")
     s.add_argument("text", nargs="*", help="der Text; '-' oder leer liest von stdin")
-    s.add_argument("--kanal", help="Kanalname ohne #; Standard steht in der Konfiguration")
-    s.add_argument("--faden", help="Kennung einer Nachricht, unter die geantwortet wird")
+    # Die alten Namen bleiben als Zweitschreibweise: sie stehen in SOUL-Dateien
+    # und Cron-Prompts auf Servern, die niemand gleichzeitig mit anfasst.
+    s.add_argument("--channel", "--kanal", dest="channel",
+                   help="Kanalname ohne #; Standard steht in der Konfiguration")
+    s.add_argument("--thread", "--faden", dest="thread",
+                   help="Kennung einer Nachricht, unter die geantwortet wird")
 
-    u.add_parser("kanaele", help="welche Kanäle es gibt")
+    u.add_parser("channels", aliases=["kanaele"], help="welche Kanäle es gibt")
 
     args = p.parse_args()
     try:
-        {"post": cmd_post, "kanaele": cmd_kanaele}[args.befehl](args)
+        {"post": cmd_post, "channels": cmd_kanaele,
+         "kanaele": cmd_kanaele}[args.befehl](args)
     except Fehler as e:
         print(f"chat: {e}", file=sys.stderr)
         sys.exit(1)

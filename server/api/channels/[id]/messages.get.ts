@@ -1,33 +1,34 @@
 import { useDb, schema } from '~~/server/db'
-import { angemeldet } from '~~/server/utils/auth'
-import { laufAbfragen } from '~~/server/utils/hermes'
+import { requireUser } from '~~/server/utils/auth'
+import { readRun } from '~~/server/utils/hermes'
+import { notifyChannel, preview } from '~~/server/utils/push'
 import { eq, and, asc, gt } from 'drizzle-orm'
 
 /**
- * Nachrichten eines Kanals — und der Ort, an dem offene Läufe eingeholt werden.
+ * A channel's messages — and the place where open runs get collected.
  *
- * Die Oberfläche fragt ohnehin alle zwei Sekunden nach. Den Stand der Läufe
- * hier mitzuprüfen erspart eine Hintergrundschleife und übersteht jeden
- * Neustart: was zu tun ist, steht in der Datenbank, nicht im Speicher.
+ * The interface polls every couple of seconds anyway. Checking run state here
+ * saves a background loop and survives any restart: what remains to be done is
+ * in the database, not in memory.
  */
 export default defineEventHandler(async (event) => {
-  const u = await angemeldet(event)
+  const user = await requireUser(event)
   const cid = getRouterParam(event, 'id')!
-  const { seit, faden } = getQuery(event) as { seit?: string; faden?: string }
+  const { since, thread } = getQuery(event) as { since?: string; thread?: string }
   const db = useDb()
 
-  const [mitglied] = await db.select().from(schema.members).where(and(
+  const [member] = await db.select().from(schema.members).where(and(
     eq(schema.members.channelId, cid),
     eq(schema.members.kind, 'user'),
-    eq(schema.members.refId, u.id),
+    eq(schema.members.refId, user.id),
   )).limit(1)
-  if (!mitglied) throw createError({ statusCode: 403, statusMessage: 'Kein Mitglied dieses Kanals' })
+  if (!member) throw createError({ statusCode: 403, statusMessage: 'Not a member of this channel' })
 
-  await offeneLaeufeEinholen(cid)
+  await collectOpenRuns(cid)
 
   const filter = [eq(schema.messages.channelId, cid)]
-  if (seit) filter.push(gt(schema.messages.createdAt, Number(seit)))
-  if (faden) filter.push(eq(schema.messages.threadRootId, faden))
+  if (since) filter.push(gt(schema.messages.createdAt, Number(since)))
+  if (thread) filter.push(eq(schema.messages.threadRootId, thread))
 
   return db.select().from(schema.messages)
     .where(and(...filter))
@@ -35,27 +36,39 @@ export default defineEventHandler(async (event) => {
     .limit(500)
 })
 
-async function offeneLaeufeEinholen(cid: string) {
+async function collectOpenRuns(cid: string) {
   const db = useDb()
-  const offen = await db.select().from(schema.messages).where(and(
+  const open = await db.select().from(schema.messages).where(and(
     eq(schema.messages.channelId, cid),
     eq(schema.messages.state, 'pending'),
   ))
 
-  for (const m of offen) {
+  for (const m of open) {
     if (!m.runId) continue
     try {
-      const stand = await laufAbfragen(m.authorId, m.runId)
-      if (!stand.fertig) continue
-      const geglueckt = stand.status === 'completed' || stand.status === 'succeeded'
+      const state = await readRun(m.authorId, m.runId)
+      if (!state.finished) continue
+      const ok = state.status === 'completed' || state.status === 'succeeded'
+      const body = state.text || (ok ? '(no answer)' : `Run ended with status: ${state.status}`)
       await db.update(schema.messages).set({
-        body: stand.text || (geglueckt ? '(keine Antwort)' : `Lauf beendet mit Status: ${stand.status}`),
-        state: geglueckt ? 'done' : 'error',
-        runId: null,
+        body, state: ok ? 'done' : 'error', runId: null,
       }).where(eq(schema.messages.id, m.id))
+
+      // An answer that lands minutes later is exactly what a notification is
+      // for — by then nobody is still looking at the window.
+      const [bot] = await db.select().from(schema.bots)
+        .where(eq(schema.bots.id, m.authorId)).limit(1)
+      const [channel] = await db.select().from(schema.channels)
+        .where(eq(schema.channels.id, cid)).limit(1)
+      notifyChannel(cid, {
+        title: channel?.kind === 'dm' ? (bot?.name || 'Bot') : `#${channel?.name} · ${bot?.name || 'Bot'}`,
+        body: preview(body),
+        url: `/c/${cid}`,
+        tag: cid,
+      }).catch(() => {})
     } catch {
-      // Ein Aussetzer der Statusabfrage darf die Nachrichtenliste nicht
-      // scheitern lassen — beim nächsten Nachfragen in zwei Sekunden erneut.
+      // A hiccup in the status call must not fail the message list — it gets
+      // asked again on the next poll, a couple of seconds later.
     }
   }
 }

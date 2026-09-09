@@ -1,137 +1,173 @@
 <script setup lang="ts">
+const { me, channels, bots, load, botName, botColor, userName } = useConsole()
+const { t } = useI18n()
 const route = useRoute()
-const { ich, kanaele, bots, laden, botName, botFarbe, nutzerName } = useHermesUi()
 
-if (!ich.value) await laden()
-if (!ich.value) await navigateTo('/login')
+await load()
+if (!me.value) await navigateTo('/login')
 
-const kanalId = computed(() => String(route.params.id))
-const kanal = computed(() => kanaele.value.find(k => k.id === kanalId.value))
-const nachrichten = ref<any[]>([])
-const eingabe = ref('')
-const faden = ref<string | null>(null)
-const fehler = ref('')
-const unten = ref<HTMLElement | null>(null)
+const channelId = computed(() => route.params.id as string)
+const channel = computed(() => channels.value.find(c => c.id === channelId.value))
+const isDm = computed(() => channel.value?.kind === 'dm')
 
-async function holen() {
+const messages = ref<any[]>([])
+const thread = ref<string | null>(null)
+const draft = ref('')
+const sending = ref(false)
+const list = ref<HTMLElement | null>(null)
+
+async function fetchMessages() {
+  const query: Record<string, string> = {}
+  if (thread.value) query.thread = thread.value
   try {
-    nachrichten.value = await $fetch<any[]>(`/api/channels/${kanalId.value}/messages`)
-  } catch (e: any) {
-    fehler.value = e?.data?.statusMessage || 'Kanal nicht lesbar'
+    messages.value = await $fetch<any[]>(`/api/channels/${channelId.value}/messages`, { query })
+  } catch {
+    // A single failed poll is not worth a message on screen; the next one
+    // is two seconds away.
   }
 }
 
-async function senden() {
-  const text = eingabe.value.trim()
-  if (!text) return
-  eingabe.value = ''
-  await $fetch(`/api/channels/${kanalId.value}/messages`, {
-    method: 'POST', body: { body: text, faden: faden.value },
-  })
-  await holen()
-  nachRuntenScrollen()
+async function send() {
+  const body = draft.value.trim()
+  if (!body || sending.value) return
+  sending.value = true
+  draft.value = ''
+  try {
+    await $fetch(`/api/channels/${channelId.value}/messages`, {
+      method: 'POST',
+      body: { body, thread: thread.value },
+    })
+    await fetchMessages()
+    scrollDown()
+  } catch (e: any) {
+    draft.value = body
+    alert(e?.data?.statusMessage || t('common.error'))
+  } finally {
+    sending.value = false
+  }
 }
 
-function nachRuntenScrollen() {
-  nextTick(() => unten.value?.scrollIntoView({ behavior: 'smooth' }))
+function scrollDown() {
+  nextTick(() => {
+    if (list.value) list.value.scrollTop = list.value.scrollHeight
+  })
 }
 
 /**
- * Nachfragen statt WebSocket: ein Agentenlauf dauert bis zu zwei Minuten, und
- * solange steht die Antwort auf `pending`. Alle zwei Sekunden nachsehen ist
- * für vier Bots und eine Handvoll Menschen völlig ausreichend — ein
- * WebSocket-Kanal wäre hier Aufwand ohne Gewinn.
+ * Two seconds of polling instead of a socket.
+ *
+ * The answer to a message arrives minutes later and through a different path
+ * anyway (a run is collected in `messages.get`), so a socket would buy
+ * latency nobody can perceive at the cost of a second delivery mechanism to
+ * keep alive across restarts.
  */
-let takt: any = null
+let timer: any
 onMounted(async () => {
-  await holen(); nachRuntenScrollen()
-  takt = setInterval(async () => {
-    const offen = nachrichten.value.some(n => n.state === 'pending')
-    await holen()
-    if (offen) nachRuntenScrollen()
-  }, 2000)
+  await fetchMessages()
+  scrollDown()
+  timer = setInterval(fetchMessages, 2000)
 })
-onUnmounted(() => clearInterval(takt))
-watch(kanalId, async () => { faden.value = null; await holen(); nachRuntenScrollen() })
+onUnmounted(() => clearInterval(timer))
+watch([channelId, thread], async () => {
+  messages.value = []
+  await fetchMessages()
+  scrollDown()
+})
 
-const sichtbar = computed(() =>
-  nachrichten.value.filter(n => (faden.value ? n.threadRootId === faden.value || n.id === faden.value : !n.threadRootId)))
+const visible = computed(() => thread.value
+  ? messages.value
+  : messages.value.filter(m => !m.threadRootId))
 
-const botsImKanal = computed(() =>
-  (kanal.value?.mitglieder ?? []).filter((m: any) => m.kind === 'bot')
-    .map((m: any) => bots.value.find(b => b.id === m.refId)).filter(Boolean))
-
-async function einladen(botId: string) {
-  await $fetch(`/api/channels/${kanalId.value}/members`, {
-    method: 'POST', body: { kind: 'bot', refId: botId },
+const inviteBot = ref('')
+async function invite() {
+  if (!inviteBot.value) return
+  await $fetch(`/api/channels/${channelId.value}/members`, {
+    method: 'POST', body: { kind: 'bot', refId: inviteBot.value },
   })
-  await laden(); await holen()
+  inviteBot.value = ''
+  await fetchMessages()
 }
 
-const uhr = (t: number) => new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+function author(m: any) {
+  if (m.authorKind === 'bot') return botName(m.authorId)
+  if (m.authorKind === 'system') return t('common.system')
+  return m.authorId === me.value?.id ? t('common.you') : userName(m.authorId)
+}
+function colour(m: any) {
+  if (m.authorKind === 'bot') return botColor(m.authorId)
+  if (m.authorKind === 'system') return '#5b6d87'
+  return '#8fa3bd'
+}
+function time(ts: number) {
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
 </script>
 
 <template>
-  <div class="h-screen flex">
-    <Seitenleiste />
+  <div class="flex h-screen">
+    <Sidebar />
 
     <main class="flex-1 flex flex-col min-w-0">
-      <header class="px-5 py-3 border-b border-rand flex items-center gap-3">
-        <div class="min-w-0">
-          <div class="font-medium truncate">
-            {{ kanal?.kind === 'dm' ? kanal?.name : `# ${kanal?.name ?? '…'}` }}
-          </div>
-          <div class="text-xs text-leise truncate">{{ kanal?.topic }}</div>
+      <header class="px-5 py-3 border-b border-edge flex items-center gap-3 panel">
+        <h1 class="font-mono text-sm tracking-wider">
+          <span v-if="!isDm" class="text-faint">#</span>{{ channel?.name }}
+        </h1>
+        <span v-if="channel?.topic" class="meta truncate">{{ channel.topic }}</span>
+
+        <div v-if="thread" class="ml-auto flex items-center gap-3">
+          <span class="label text-cyan">{{ t('chat.thread') }}</span>
+          <button class="btn" @click="thread = null">{{ t('chat.closeThread') }}</button>
         </div>
-        <div class="ml-auto flex items-center gap-2">
-          <span v-for="b in botsImKanal" :key="b.id"
-                class="text-xs px-2 py-0.5 rounded-full border border-rand"
-                :style="{ color: b.color }">@{{ b.slug }}</span>
-          <select v-if="kanal?.kind === 'channel'" class="bg-grund border border-rand rounded text-xs px-2 py-1"
-                  @change="einladen(($event.target as HTMLSelectElement).value)">
-            <option value="">Bot einladen…</option>
-            <option v-for="b in bots" :key="b.id" :value="b.id">{{ b.name }}</option>
+        <div v-else-if="!isDm" class="ml-auto flex items-center gap-2">
+          <select v-model="inviteBot" class="field text-xs w-40" @change="invite">
+            <option value="">{{ t('chat.inviteBot') }}</option>
+            <option v-for="b in bots" :key="b.id" :value="b.id">@{{ b.slug }}</option>
           </select>
         </div>
       </header>
 
-      <div v-if="faden" class="px-5 py-2 bg-flaeche border-b border-rand text-xs flex items-center gap-3">
-        <span class="text-leise">Faden</span>
-        <button class="text-akzent" @click="faden = null">zurück zum Kanal</button>
-      </div>
+      <div ref="list" class="flex-1 overflow-y-auto scroller px-5 py-4 space-y-4">
+        <p v-if="!visible.length" class="meta">{{ t('chat.empty') }}</p>
 
-      <div class="flex-1 overflow-y-auto verlauf px-5 py-4 space-y-3">
-        <p v-if="fehler" class="text-red-400 text-sm">{{ fehler }}</p>
-
-        <article v-for="n in sichtbar" :key="n.id" class="flex gap-3 group">
-          <div class="w-8 h-8 rounded shrink-0 grid place-items-center text-xs font-medium"
-               :style="{ background: n.authorKind === 'bot' ? botFarbe(n.authorId) : '#2f3542',
-                         color: n.authorKind === 'bot' ? '#14161c' : '#e6e8ee' }">
-            {{ (n.authorKind === 'bot' ? botName(n.authorId) : nutzerName(n.authorId)).slice(0, 2) }}
+        <article v-for="m in visible" :key="m.id" class="group">
+          <div class="flex items-baseline gap-2">
+            <span class="w-1.5 h-1.5 shrink-0 translate-y-[-1px]"
+                  :style="{ background: colour(m), boxShadow: `0 0 8px ${colour(m)}` }" />
+            <span class="font-mono text-xs tracking-wide" :style="{ color: colour(m) }">
+              {{ author(m) }}
+            </span>
+            <span class="meta">{{ time(m.createdAt) }}</span>
+            <button v-if="!thread && m.authorKind !== 'system'"
+                    class="meta ml-auto opacity-0 group-hover:opacity-100 hover:text-cyan transition-opacity"
+                    @click="thread = m.threadRootId || m.id">
+              {{ t('chat.reply') }}
+            </button>
           </div>
-          <div class="min-w-0 flex-1">
-            <div class="flex items-baseline gap-2">
-              <span class="text-sm font-medium">
-                {{ n.authorKind === 'bot' ? botName(n.authorId) : nutzerName(n.authorId) }}
-              </span>
-              <span v-if="n.authorKind === 'bot'" class="text-[10px] uppercase text-leise border border-rand rounded px-1">Bot</span>
-              <span class="text-xs text-leise">{{ uhr(n.createdAt) }}</span>
-              <button v-if="!faden" class="text-xs text-leise opacity-0 group-hover:opacity-100 ml-2"
-                      @click="faden = n.id">Faden</button>
+
+          <div class="pl-[14px] mt-1">
+            <div v-if="m.state === 'pending'" class="flex items-center gap-1.5 py-1">
+              <span class="pulse-dot" /><span class="pulse-dot" /><span class="pulse-dot" />
+              <span class="meta ml-2">{{ t('chat.thinking') }}</span>
             </div>
-            <p v-if="n.state === 'pending'" class="text-leise text-sm italic">denkt nach …</p>
-            <p v-else class="text-sm whitespace-pre-wrap break-words"
-               :class="n.state === 'error' ? 'text-red-400' : n.authorKind === 'system' ? 'text-leise italic' : ''">{{ n.body }}</p>
+            <p v-else class="answer text-sm"
+               :class="m.state === 'error' ? 'text-rose' : 'text-ink'">{{ m.body }}</p>
           </div>
         </article>
-        <div ref="unten" />
       </div>
 
-      <form class="p-4 border-t border-rand" @submit.prevent="senden">
-        <input v-model="eingabe"
-               :placeholder="kanal?.kind === 'dm' ? 'Nachricht schreiben…' : 'Nachricht — Bot mit @kürzel ansprechen'"
-               class="w-full bg-flaeche border border-rand rounded-lg px-4 py-3 text-sm" />
-      </form>
+      <footer class="border-t border-edge p-3 panel">
+        <form class="flex gap-2" @submit.prevent="send">
+          <input
+            v-model="draft"
+            class="field"
+            :placeholder="isDm
+              ? t('chat.placeholderDm', { name: channel?.name || '' })
+              : t('chat.placeholder', { channel: channel?.name || '' })" />
+          <button class="btn btn-primary" :disabled="sending || !draft.trim()">
+            {{ t('chat.send') }}
+          </button>
+        </form>
+      </footer>
     </main>
   </div>
 </template>

@@ -1,20 +1,195 @@
 @import "tailwindcss";
 
+/*
+ * A console, not a poster.
+ *
+ * The science-fiction look here comes from structure rather than decoration:
+ * a dark ground, hairline borders that glow instead of thickening, monospace
+ * for anything a machine produced, and clipped corners that suggest a panel
+ * cut out of metal. What it deliberately avoids is the stuff that makes such
+ * interfaces unusable after ten minutes — low-contrast text on busy
+ * backgrounds, permanent animation, and glow on things you have to read.
+ */
 @theme {
-  --color-grund: #14161c;
-  --color-seite: #1b1e27;
-  --color-flaeche: #232733;
-  --color-rand: #2f3542;
-  --color-akzent: #4fd1c5;
-  --color-text: #e6e8ee;
-  --color-leise: #9aa2b1;
+  --color-void: #05070d;
+  --color-deep: #0a0e18;
+  --color-panel: #101725;
+  --color-raised: #16203258;
+  --color-edge: #1e2c44;
+  --color-edge-bright: #2b4a6f;
+
+  --color-cyan: #22d3ee;
+  --color-magenta: #e879f9;
+  --color-amber: #fbbf24;
+  --color-lime: #a3e635;
+  --color-rose: #fb7185;
+
+  --color-ink: #e8f0f8;
+  --color-muted: #8fa3bd;
+  --color-faint: #5b6d87;
+
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 }
 
 html, body, #__nuxt { height: 100%; }
+
 body {
-  background: var(--color-grund);
-  color: var(--color-text);
+  background: var(--color-void);
+  color: var(--color-ink);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
 }
-/* Der Verlauf soll unten kleben, wie in jedem Chat. */
-.verlauf { scrollbar-width: thin; scrollbar-color: var(--color-rand) transparent; }
+
+/* ── The ground ──────────────────────────────────────────────────────────
+   A grid and two distant glows. Fixed, so it does not scroll with content
+   and does not repaint on every message. */
+.starfield {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(900px 600px at 12% -10%, #0e2a4a55, transparent 70%),
+    radial-gradient(700px 500px at 105% 105%, #3b0d4a44, transparent 70%),
+    linear-gradient(transparent 95%, #1e2c4433 95%) 0 0 / 100% 32px,
+    linear-gradient(90deg, transparent 95%, #1e2c4426 95%) 0 0 / 32px 100%;
+}
+
+/* A single slow sweep. One moving thing on the page is atmosphere; three is
+   a fairground. */
+.scanline {
+  position: fixed;
+  left: 0; right: 0; top: 0;
+  height: 140px;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(180deg, transparent, #22d3ee0a 55%, transparent);
+  animation: sweep 14s linear infinite;
+}
+@keyframes sweep {
+  0%   { transform: translateY(-140px); opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+/* ── Panels ────────────────────────────────────────────────────────────── */
+.panel {
+  background:
+    linear-gradient(#101725ee, #0a0e18ee);
+  border: 1px solid var(--color-edge);
+  position: relative;
+}
+.panel-clip {
+  clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
+/* Corner brackets, drawn rather than imaged. */
+.bracket::before,
+.bracket::after {
+  content: "";
+  position: absolute;
+  width: 10px; height: 10px;
+  border-color: var(--color-cyan);
+  opacity: .55;
+}
+.bracket::before { top: -1px; left: -1px; border-top: 1px solid; border-left: 1px solid; }
+.bracket::after  { bottom: -1px; right: -1px; border-bottom: 1px solid; border-right: 1px solid; }
+
+/* ── Type ──────────────────────────────────────────────────────────────── */
+.label {
+  font-family: var(--font-mono);
+  font-size: .6875rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.meta { font-family: var(--font-mono); font-size: .6875rem; color: var(--color-faint); }
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+.field {
+  width: 100%;
+  background: #060a12;
+  border: 1px solid var(--color-edge);
+  color: var(--color-ink);
+  padding: .5rem .625rem;
+  font-size: .875rem;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.field:focus {
+  border-color: var(--color-cyan);
+  box-shadow: 0 0 0 1px #22d3ee40, 0 0 18px -6px #22d3ee80;
+}
+.field::placeholder { color: var(--color-faint); }
+
+.btn {
+  font-family: var(--font-mono);
+  font-size: .75rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: .5rem .875rem;
+  border: 1px solid var(--color-edge-bright);
+  color: var(--color-ink);
+  background: #0d1522;
+  transition: border-color .15s, box-shadow .15s, color .15s;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--color-cyan);
+  color: var(--color-cyan);
+  box-shadow: 0 0 20px -8px #22d3ee;
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-primary {
+  border-color: #22d3ee66;
+  background: linear-gradient(#0e2b35, #0a1d26);
+  color: var(--color-cyan);
+}
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--color-rose);
+  color: var(--color-rose);
+  box-shadow: 0 0 20px -8px var(--color-rose);
+}
+
+/* ── Lists and scrolling ───────────────────────────────────────────────── */
+.scroller {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-edge) transparent;
+}
+.scroller::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroller::-webkit-scrollbar-thumb { background: var(--color-edge); }
+.scroller::-webkit-scrollbar-track { background: transparent; }
+
+/* The active row in the sidebar gets a lit left edge rather than a fill —
+   a fill at this contrast either shouts or disappears. */
+.row-active {
+  background: linear-gradient(90deg, #22d3ee14, transparent 60%);
+  box-shadow: inset 2px 0 0 var(--color-cyan);
+  color: var(--color-cyan);
+}
+
+/* ── Waiting ───────────────────────────────────────────────────────────── */
+.pulse-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 9999px;
+  background: var(--color-cyan);
+  animation: breathe 1.4s ease-in-out infinite;
+}
+.pulse-dot:nth-child(2) { animation-delay: .2s; }
+.pulse-dot:nth-child(3) { animation-delay: .4s; }
+@keyframes breathe {
+  0%, 100% { opacity: .25; transform: scale(.8); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
+
+/* Prose inside a bot's answer. Markdown is not rendered — this only keeps
+   long text and code readable. */
+.answer { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.answer code { font-family: var(--font-mono); font-size: .8125rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scanline { display: none; }
+  .pulse-dot { animation: none; opacity: .7; }
+}

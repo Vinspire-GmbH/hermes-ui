@@ -77,8 +77,13 @@ proof; measure from a foreign machine.
 
 ## 2. Register the bot in the UI
 
-There is **no form** for this yet, only the endpoint — and it requires an
-admin. Log in first, then register:
+Sign in as an administrator and go to **Admin → Bots → New bot**. The wizard
+walks through identity, an optional SOUL interview, the connection (with a
+"test connection" button that reports the model ids the instance offers) and a
+final review.
+
+Everything it does is also available as endpoints, which is the better route
+for scripting a fleet:
 
 ```bash
 curl -s -c cookies.txt -X POST https://<your-ui>/api/auth/login \
@@ -170,22 +175,22 @@ cat > /opt/data/profiles/<profile>/home/.config/chat/config.json <<'JSON'
 {
   "base_url": "https://<your-ui>",
   "token": "hui-…",
-  "kanal": "sales"
+  "channel": "sales"
 }
 JSON
 chmod 600 /opt/data/profiles/<profile>/home/.config/chat/config.json
 ```
 
-`kanal` is the default channel and may be omitted; then `--kanal` is required.
-After that:
+`channel` is the default channel and may be omitted; then `--channel` is
+required. After that:
 
 ```bash
 chat post "Short note."
 chat post - <<'REPORT'          # for anything with line breaks
 …your report…
 REPORT
-chat kanaele                    # which channels exist
-chat post --kanal general "…"   # into a different channel
+chat channels                     # which channels exist
+chat post --channel general "…"   # into a different channel
 ```
 
 The tool needs **no third-party libraries** — just `python3` and the standard
@@ -242,7 +247,7 @@ curl -s -H "Authorization: Bearer $KEY" http://<host>:9200/v1/models
 curl -s -b cookies.txt https://<your-ui>/api/bots
 
 # 3. the way back works — as the bot, with its HOME
-HOME=/opt/data/profiles/<profile>/home chat kanaele
+HOME=/opt/data/profiles/<profile>/home chat channels
 
 # 4. end to end: write "@handle hello" in the UI
 ```
@@ -259,6 +264,12 @@ not a timeout.
 ```bash
 NUXT_SESSION_PASSWORD=<at least 32 characters>   # required, for the cookies
 HERMES_UI_DB=/data/hermes-ui.db                  # put this on a volume
+
+# Web Push. Without these, notifications stay switched off rather than
+# failing — generate a pair with:  npx web-push generate-vapid-keys
+VAPID_PUBLIC_KEY=<public key>
+VAPID_PRIVATE_KEY=<private key>
+VAPID_SUBJECT=mailto:you@example.com
 ```
 
 The SQLite file creates its schema on first start; a fresh volume needs no
@@ -271,12 +282,47 @@ on missing native Rolldown libraries, and a static build does not build at all.
 
 ---
 
-## 6. Limits
+## 6. People, notifications, and building a persona
 
-- **No form for bots.** Registering and issuing keys work only through the
-  endpoints.
-- **No notifications.** Whoever has nothing open sees nothing. Web Push is
-  still missing.
+**Inviting.** Admin → People issues a link that is valid for fourteen days.
+No mail is sent: this console has no mail server, and one that silently fails
+to deliver is worse than none. Only the link's SHA-256 is stored, so it is
+shown exactly once and cannot be recovered — issue a new one instead.
+
+**Notifications.** Once the VAPID keys are set, each person turns push on per
+browser under Admin → Notifications. A notification goes out when someone
+posts in a channel you belong to, when a bot's answer finally lands (which is
+the case that matters — by then nobody is still watching the window), and when
+a cron report arrives. The author never gets notified about their own message.
+The page is installable as a PWA; on a phone that is also what makes push work
+at all under iOS.
+
+**Building a SOUL.** Step 2 of the bot wizard is an interview: an existing bot
+asks one question at a time about what the new agent is responsible for, what
+it must not touch, which tools it has, and what it should remember, then writes
+the SOUL.md. You can edit the result, download it, or have it applied.
+
+Applying takes an unobvious route worth explaining. Hermes has a dashboard API
+with `POST /api/profiles` and `PUT /api/profiles/{name}/soul` — exactly the two
+calls needed — but that dashboard is guarded by a session cookie minted at
+start-up, so nothing outside it can hold a durable credential. What does work
+is the agent itself: it has a shell and `hermes` on its PATH. So a bot marked
+**operator** in its settings is asked to run the commands: create the profile
+(cloned from an existing one, so it inherits a model and credentials — a fresh
+profile has neither and cannot answer), write SOUL.md, switch on `api_server`
+on a free port, and add an `API_SERVER_KEY` to the profile's `.env`. It reports
+back what it did.
+
+Two things to know about that. The instruction is fixed text with substituted
+values, never a command typed by a user — but it is still shell work handed to
+a model, which is why it is admin-only and why an operator bot has to be marked
+deliberately. And the new platform starts with the Hermes container, so the bot
+becomes reachable after a restart, not immediately.
+
+---
+
+## 7. Limits
+
 - **`api_server` brings no TLS.** See above — that belongs in front of the
   application, not inside it.
 - **SQLite tolerates one writer.** For a team with bots that is enough (WAL
@@ -284,24 +330,30 @@ on missing native Rolldown libraries, and a static build does not build at all.
   would be the next step.
 - **Runs show no intermediate state.** `GET /v1/runs/<id>/events` delivers it
   over SSE; the UI does not read it yet.
-- **The UI cannot create profiles.** A Hermes profile is created on the Hermes
-  side; here it is only registered.
+- **A new profile needs a restart.** Creating one through an operator bot
+  works, but its gateway starts with the Hermes container.
+- **No mail.** Invitations are links you pass on yourself.
+- **Markdown is not rendered.** A bot's answer is shown as it came, with line
+  breaks and no formatting.
 
 ---
 
 ## A note on language
 
-The UI and the `chat` tool are written in German: menu labels, help text,
-error messages, and some request fields. Where this document quotes them, it
-quotes them verbatim — those are the strings you will actually see. The ones
-you have to type:
+The interface speaks English and German; it picks from `Accept-Language` on
+the first visit and remembers a choice per account. Add a language by dropping
+a file next to `app/i18n/en.ts` and listing it in `app/composables/useI18n.ts`
+— there is no i18n module to configure.
 
-| Where | Field | Note |
+Every request field and every route is English. The first release used German
+names in three places, and those are still accepted so an installation does
+not break between deploying this and editing its config files:
+
+| Where | Current | Still accepted |
 |---|---|---|
-| `POST /api/bot/messages` | `kanal` | `channel` is accepted as well |
-| `POST /api/auth/login` | `passwort` | no English alias |
-| `config.json` for `chat` | `kanal` | no English alias |
-| `chat` CLI | `--kanal`, `chat kanaele` | no English alias |
+| `POST /api/bot/messages` | `channel`, `thread` | `kanal`, `faden` |
+| `config.json` for `chat` | `channel` | `kanal` |
+| `chat` CLI | `--channel`, `chat channels` | `--kanal`, `chat kanaele` |
 
-Translating the application itself is a separate step from translating this
-document.
+The `chat` tool's own help text and error messages are German. It is read by
+agents rather than people, which is why translating it has not been urgent.

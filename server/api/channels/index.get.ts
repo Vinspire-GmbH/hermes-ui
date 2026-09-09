@@ -1,28 +1,16 @@
 import { useDb, schema } from '~~/server/db'
-import { angemeldet } from '~~/server/utils/auth'
-import { eq, and, inArray } from 'drizzle-orm'
+import { requireUser } from '~~/server/utils/auth'
+import { and, eq } from 'drizzle-orm'
 
-/** Kanäle und Direktnachrichten, in denen der Angemeldete Mitglied ist. */
+/** The channels this person is in. A DM is one of them. */
 export default defineEventHandler(async (event) => {
-  const u = await angemeldet(event)
+  const user = await requireUser(event)
   const db = useDb()
-
-  const meine = await db.select({ channelId: schema.members.channelId })
-    .from(schema.members)
-    .where(and(eq(schema.members.kind, 'user'), eq(schema.members.refId, u.id)))
-  const ids = meine.map(m => m.channelId)
-  if (!ids.length) return []
-
-  const kanaele = await db.select().from(schema.channels)
-    .where(inArray(schema.channels.id, ids))
-  const mitglieder = await db.select().from(schema.members)
-    .where(inArray(schema.members.channelId, ids))
-
-  return kanaele
-    .map(k => ({
-      ...k,
-      mitglieder: mitglieder.filter(m => m.channelId === k.id)
-        .map(m => ({ kind: m.kind, refId: m.refId })),
-    }))
-    .sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : (a.kind === 'channel' ? -1 : 1))
+  const mine = await db.select().from(schema.members).where(and(
+    eq(schema.members.kind, 'user'),
+    eq(schema.members.refId, user.id),
+  ))
+  const ids = new Set(mine.map(m => m.channelId))
+  const all = await db.select().from(schema.channels)
+  return all.filter(c => ids.has(c.id))
 })

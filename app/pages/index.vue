@@ -1,12 +1,13 @@
 <script setup lang="ts">
-const { ich, kanaele, laden } = useHermesUi()
-await laden()
-if (!ich.value) await navigateTo('/login')
-else if (kanaele.value.length) await navigateTo(`/c/${kanaele.value[0].id}`)
+const { me, channels, load } = useConsole()
+const { t } = useI18n()
+await load()
+if (!me.value) await navigateTo('/login')
+else if (channels.value.length) await navigateTo(`/c/${channels.value[0].id}`)
 </script>
 
 <template>
-  <div class="min-h-screen grid place-items-center text-leise">
-    Noch kein Kanal — lege einen an.
+  <div class="min-h-screen grid place-items-center">
+    <p class="text-muted text-sm">{{ t('chat.noChannel') }}</p>
   </div>
 </template>

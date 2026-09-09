@@ -1,16 +1,15 @@
 import { useDb, schema } from '~~/server/db'
-import { istAdmin } from '~~/server/utils/auth'
+import { requireAdmin } from '~~/server/utils/auth'
 import { eq } from 'drizzle-orm'
 
-/** Welche Schlüssel es gibt und wann sie zuletzt benutzt wurden — ohne Klartext. */
+/** Which keys exist and when they were last used — never the plaintext. */
 export default defineEventHandler(async (event) => {
-  await istAdmin(event)
+  await requireAdmin(event)
   const bid = getRouterParam(event, 'id')!
-  const db = useDb()
-  const zeilen = await db.select().from(schema.botTokens)
+  const rows = await useDb().select().from(schema.botTokens)
     .where(eq(schema.botTokens.botId, bid))
-  return zeilen.map(z => ({
-    id: z.id, prefix: z.prefix, label: z.label,
-    lastUsedAt: z.lastUsedAt, createdAt: z.createdAt,
+  return rows.map(r => ({
+    id: r.id, prefix: r.prefix, label: r.label,
+    lastUsedAt: r.lastUsedAt, createdAt: r.createdAt,
   }))
 })
