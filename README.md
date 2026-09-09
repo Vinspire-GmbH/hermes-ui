@@ -45,7 +45,9 @@ you cannot see. This talks to each agent's `api_server` platform directly.
 ## Requirements
 
 - A Hermes installation with the `api_server` platform enabled per profile
-- Node 22.19 or newer (Nuxt 4's own range: `^22.19.0 || ^24.11.0 || >=26`)
+- Node 22.19 or newer — Nuxt 4's range is `^22.19.0 || ^24.11.0 || >=26`.
+  `.node-version` pins the 22 line for builders that read it: railpack's
+  runtime image has no `libatomic.so.1`, and the Node 26 build needs it.
 - Nothing else. Storage is SQLite in a file.
 
 ## Run it
