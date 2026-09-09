@@ -38,11 +38,7 @@ export function rateLimit(
     lastSweep = now
   }
 
-  // Behind a reverse proxy the socket address is the proxy. Traefik sets
-  // X-Forwarded-For, and `getRequestIP` reads it when asked — without the
-  // flag every visitor would share one bucket.
-  const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown'
-  const key = `${name}:${ip}`
+  const key = `${name}:${clientIp(event)}`
 
   const bucket = buckets.get(key)
   if (!bucket || bucket.resetAt < now) {
@@ -58,4 +54,33 @@ export function rateLimit(
       statusMessage: `Too many attempts. Try again in ${seconds} seconds.`,
     })
   }
+}
+
+/**
+ * Which address to count against.
+ *
+ * Behind a reverse proxy the socket address is the proxy, so the real client
+ * has to come from `X-Forwarded-For`. The subtlety: that header is a chain,
+ * `client, proxy1, proxy2`, and everything except the entry added by the
+ * nearest proxy is written by whoever came before — including the client.
+ *
+ * h3's `getRequestIP` takes the **first** entry. Behind a proxy that appends
+ * rather than replaces, that value is attacker-controlled, and a fresh value
+ * per request means a fresh bucket per request — the limit would count
+ * nothing. Traefik replaces the header, so this installation was never
+ * exposed; taking the **last** entry is correct behind either kind of proxy,
+ * which matters for an installation that is not this one.
+ *
+ * `TRUSTED_PROXY_HOPS` shifts that further left for a chain of several
+ * proxies you own (a CDN in front of Traefik, say). Left at 1 it means:
+ * trust exactly the proxy in front of me.
+ */
+function clientIp(event: any): string {
+  const chain = (getRequestHeader(event, 'x-forwarded-for') || '')
+    .split(',').map(s => s.trim()).filter(Boolean)
+  if (chain.length) {
+    const hops = Math.max(1, Number(process.env.TRUSTED_PROXY_HOPS || 1))
+    return chain[Math.max(0, chain.length - hops)] || chain[chain.length - 1]
+  }
+  return event.node?.req?.socket?.remoteAddress || 'unknown'
 }

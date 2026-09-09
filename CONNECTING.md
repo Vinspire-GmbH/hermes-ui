@@ -270,6 +270,13 @@ HERMES_UI_DB=/data/hermes-ui.db                  # put this on a volume
 VAPID_PUBLIC_KEY=<public key>
 VAPID_PRIVATE_KEY=<private key>
 VAPID_SUBJECT=mailto:you@example.com
+
+# How many proxy hops in front of this app you own. Left unset it means one —
+# the reverse proxy directly in front. It decides which entry of
+# X-Forwarded-For the rate limiter counts against; too high and a client can
+# claim a fresh address per request, too low and everyone behind your CDN
+# shares one bucket.
+TRUSTED_PROXY_HOPS=1
 ```
 
 The SQLite file creates its schema on first start; a fresh volume needs no
@@ -325,6 +332,10 @@ becomes reachable after a restart, not immediately.
 
 - **`api_server` brings no TLS.** See above — that belongs in front of the
   application, not inside it.
+- **The rate limiter counts in memory.** Attempts reset on restart, and
+  behind several instances each would count for itself. One process on one
+  SQLite file is the shape this app has; if that changes, the counters belong
+  in the database.
 - **SQLite tolerates one writer.** For a team with bots that is enough (WAL
   and a busy timeout are set); for hundreds of concurrent people Postgres
   would be the next step.
