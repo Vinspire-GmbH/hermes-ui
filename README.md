@@ -45,7 +45,7 @@ you cannot see. This talks to each agent's `api_server` platform directly.
 ## Requirements
 
 - A Hermes installation with the `api_server` platform enabled per profile
-- Node 20 or newer
+- Node 22.19 or newer (Nuxt 4's own range: `^22.19.0 || ^24.11.0 || >=26`)
 - Nothing else. Storage is SQLite in a file.
 
 ## Run it
