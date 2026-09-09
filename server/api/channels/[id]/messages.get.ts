@@ -96,9 +96,22 @@ async function collectOpenRuns(cid: string) {
 
       if (!state.finished) continue
       const ok = state.status === 'completed' || state.status === 'succeeded'
-      const body = state.text || (ok ? '(no answer)' : `Run ended with status: ${state.status}`)
+
+      // A run somebody called off is not a failure, and showing it in red as
+      // "Run ended with status: cancelled" reads like one. The progress column
+      // records who asked, so the two cases can be told apart.
+      const askedToStop = state.status === 'cancelled'
+        && (() => {
+          try { return Boolean(JSON.parse(m.progress || '{}').stopping) } catch { return false }
+        })()
+
+      const body = state.text
+        || (ok ? '(no answer)'
+          : askedToStop ? 'Stopped.'
+            : `Run ended with status: ${state.status}`)
       await db.update(schema.messages).set({
-        body, state: ok ? 'done' : 'error', runId: null, approval: null, progress: null,
+        body, state: (ok || askedToStop) ? 'done' : 'error',
+        runId: null, approval: null, progress: null,
         ...(state.usage
           ? { inputTokens: state.usage.input, outputTokens: state.usage.output }
           : {}),
