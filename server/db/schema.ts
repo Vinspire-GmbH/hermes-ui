@@ -96,7 +96,13 @@ export const messages = sqliteTable('messages', {
   authorId: text('author_id').notNull(),
   body: text('body').notNull(),
   // While the agent is working this reads 'pending'; on failure 'error'.
-  state: text('state', { enum: ['done', 'pending', 'error'] }).notNull().default('done'),
+  // 'approval' means the run has stopped and is waiting for a person to allow
+  // or refuse a command — not an end state, and not a failure.
+  state: text('state', { enum: ['done', 'pending', 'error', 'approval'] })
+    .notNull().default('done'),
+  // The pending approval as JSON: the command, the tool, the choices offered.
+  // Fetched once, when the run enters the waiting state.
+  approval: text('approval'),
   // Identifier of the Hermes run while it is open. Kept in the row so the
   // state survives a restart of this application.
   runId: text('run_id'),

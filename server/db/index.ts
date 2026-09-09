@@ -70,7 +70,7 @@ function createTables(sqlite: Database.Database) {
       channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
       thread_root_id TEXT, author_kind TEXT NOT NULL, author_id TEXT NOT NULL,
       body TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'done',
-      run_id TEXT, created_at INTEGER NOT NULL);
+      run_id TEXT, approval TEXT, created_at INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS messages_channel_time ON messages(channel_id, created_at);
     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_root_id);
 
@@ -101,6 +101,7 @@ function createTables(sqlite: Database.Database) {
   // Retro-fit existing databases. ADD COLUMN is cheap and idempotent as long
   // as the "column exists" error is swallowed.
   addColumn(sqlite, 'messages', 'run_id TEXT')
+  addColumn(sqlite, 'messages', 'approval TEXT')
   addColumn(sqlite, 'users', 'locale TEXT')
   addColumn(sqlite, 'bots', 'operator INTEGER NOT NULL DEFAULT 0')
 }

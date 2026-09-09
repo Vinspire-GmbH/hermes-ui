@@ -149,6 +149,13 @@ function time(ts: number) {
               <span class="pulse-dot" /><span class="pulse-dot" /><span class="pulse-dot" />
               <span class="meta ml-2">{{ t('chat.thinking') }}</span>
             </div>
+            <ApprovalPrompt
+              v-else-if="m.state === 'approval'"
+              :message-id="m.id"
+              :channel-id="channelId"
+              :bot-name="author(m)"
+              :approval="m.approval"
+              @resolved="fetchMessages" />
             <p v-else class="answer text-sm"
                :class="m.state === 'error' ? 'text-rose' : 'text-ink'">{{ m.body }}</p>
           </div>
