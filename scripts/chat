@@ -1,24 +1,25 @@
 #!/usr/bin/python3
-"""chat — als Bot in die Kanäle der Hermes-Oberfläche schreiben.
+"""chat — post into the Hermes console as a bot, and ship its accounting.
 
-Das Gegenstück zu `--deliver slack:C…`: Hermes kann von sich aus nur die
-Plattformen seines `Platform`-Enums bedienen, und die eigene Oberfläche ist
-keine davon. Also meldet sich der Bot selbst, mit seinem Schreibschlüssel —
-so kommen Cron-Berichte in einen Kanal, ohne dass jemand gefragt hat.
+The counterpart to `--deliver slack:C…`. Hermes can only deliver to the
+platforms in its own `Platform` enum, and the console is not one of them, so
+the bot reports for itself with its write key. That is how a scheduled run
+lands in a channel without anyone having asked.
 
-Ohne Fremdbibliotheken, mit Absicht: die Umgebung eines Werkzeugaufrufs ist
-bereinigt, dort gibt es nichts außer der Standardbibliothek.
+No third-party libraries, on purpose: a tool call's environment is sanitized
+and holds nothing beyond the standard library.
 
-Zugangsdaten: $HOME/.config/chat/config.json (0600)
+Credentials: $HOME/.config/chat/config.json (0600)
   { "base_url": "https://chat.example.com",
     "token":    "hui-…",
     "channel":  "general" }
 
-Den Schlüssel stellt die Oberfläche aus: POST /api/bots/<id>/tokens.
-`channel` ist der Standardkanal und darf fehlen; dann ist --channel Pflicht.
-Der alte Name `kanal` wird weiter gelesen: die Datei liegt auf fremden
-Servern, und ein Cron-Lauf soll nicht an einer Umbenennung scheitern.
-Einzelheiten in CONNECTING.md.
+The console issues the key: POST /api/bots/<id>/tokens. `channel` is the
+default channel and may be omitted; then --channel is required. The German
+field name `channel_name` is still read, because that file sits on other people's
+servers and a rename should not break a cron run.
+
+See CONNECTING.md for the long version.
 """
 
 import json
@@ -31,103 +32,103 @@ HOME = os.environ.get("HOME") or "/opt/data/home"
 CONFIG = os.path.join(HOME, ".config", "chat", "config.json")
 
 
-class Fehler(Exception):
+class ToolError(Exception):
     pass
 
 
 def config():
     if not os.path.exists(CONFIG):
-        raise Fehler(f"Keine Zugangsdaten unter {CONFIG}. Die legt Marcel an.")
+        raise ToolError(f"No credentials at {CONFIG}. An administrator creates them.")
     with open(CONFIG, encoding="utf-8") as f:
         c = json.load(f)
     for k in ("base_url", "token"):
         if not c.get(k):
-            raise Fehler(f"In {CONFIG} fehlt: {k}")
+            raise ToolError(f"Missing from {CONFIG}: {k}")
     return c
 
 
-def api(c, pfad, daten=None):
-    url = f"{c['base_url'].rstrip('/')}{pfad}"
-    leib = json.dumps(daten).encode("utf-8") if daten is not None else None
-    req = urllib.request.Request(url, data=leib, method="POST" if leib else "GET")
+def api(c, path, payload=None):
+    url = f"{c['base_url'].rstrip('/')}{path}"
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=body, method="POST" if body else "GET")
     req.add_header("Authorization", f"Bearer {c['token']}")
     req.add_header("Accept", "application/json")
-    if leib:
+    if body:
         req.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(req, timeout=45) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        roh = e.read().decode("utf-8", "replace")
+        raw = e.read().decode("utf-8", "replace")
         try:
-            grund = json.loads(roh).get("statusMessage") or json.loads(roh).get("message") or roh
+            reason = json.loads(raw).get("statusMessage") or json.loads(raw).get("message") or raw
         except Exception:
-            grund = roh[:300]
+            reason = raw[:300]
         if e.code == 401:
-            raise Fehler(f"Die Oberfläche weist den Schlüssel ab: {grund}")
-        raise Fehler(f"Oberfläche antwortet {e.code}: {grund}")
+            raise ToolError(f"The console rejected the key: {reason}")
+        raise ToolError(f"Console answered {e.code}: {reason}")
     except urllib.error.URLError as e:
-        raise Fehler(f"Oberfläche nicht erreichbar: {e.reason}")
+        raise ToolError(f"Console not reachable: {e.reason}")
 
 
 def cmd_post(args):
     c = config()
-    kanal = args.channel or c.get("channel") or c.get("kanal")
-    if not kanal:
-        raise Fehler("Kein Kanal angegeben und keiner in der Konfiguration.")
+    channel_name = args.channel or c.get("channel") or c.get("kanal")
+    if not channel_name:
+        raise ToolError("No channel given, and none in the configuration.")
 
     text = " ".join(args.text).strip()
     if not text or text == "-":
-        # Für lange Berichte: `… | chat post -`. Ein Bericht mit Zeilenumbrüchen
-        # gehört nicht in ein Shell-Argument.
+        # For long reports: `… | chat post -`. A report with line breaks does
+        # not belong in a shell argument.
         text = sys.stdin.read().strip()
     if not text:
-        raise Fehler("Nichts zu melden — der Text ist leer.")
+        raise ToolError("Nothing to report — the text is empty.")
 
-    daten = {"channel": kanal, "text": text}
+    payload = {"channel": channel_name, "text": text}
     if args.thread:
-        daten["thread"] = args.thread
-    a = api(c, "/api/bot/messages", daten)
-    print(f"Gesendet an #{a['channel']} als {a['bot']} ({a['id']}).")
+        payload["thread"] = args.thread
+    a = api(c, "/api/bot/messages", payload)
+    print(f"Posted to #{a['channel']} as {a['bot']} ({a['id']}).")
 
 
-def cmd_kanaele(args):
+def cmd_channels(args):
     c = config()
     for k in api(c, "/api/bot/channels"):
         print(f"  #{k['slug']:<24} {k['name']}" + (f" — {k['topic']}" if k.get("topic") else ""))
 
 
 def cmd_usage(args):
-    """Kosten der Läufe an die Oberfläche schicken.
+    """Ship what the runs cost to the console.
 
-    Quelle ist Hermes' eigene Buchhaltung in state.db, nicht die
-    Verbrauchsdatei des Cron. Der Grund ist ein Fehler, der teuer aussah:
-    `prompt_tokens` in usage_audit.jsonl ist laut agent/usage_pricing.py
-    `input_tokens + cache_read_tokens + cache_write_tokens`. Wer das zum
-    Eingabepreis rechnet, überschätzt die Rechnung um das Fünffache — bei
-    Bob sind 90 % der Eingabe Cache-Treffer, und die kosten ein Zehntel.
+    The source is Hermes' own accounting in state.db, not the cron usage
+    audit file. The reason is a mistake that looked expensive: in
+    agent/usage_pricing.py, `prompt_tokens` is
+    `input_tokens + cache_read_tokens + cache_write_tokens`. Priced at the
+    input rate that overstates the bill roughly fivefold — measured on one
+    agent, 90 % of the input is cache reads, and those cost a tenth.
 
-    Die Tabelle `sessions` führt die vier Töpfe getrennt und dazu
-    `estimated_cost_usd`, von Hermes mit seiner eigenen Preistabelle
-    gerechnet. Sie deckt außerdem beide Fälle ab: Cron-Läufe und Gespräche
-    liegen dort gleichermaßen. Also eine Quelle statt zwei.
+    The `sessions` table keeps the four buckets apart and carries
+    `estimated_cost_usd`, computed by Hermes with its own price table. It
+    also covers both cases: scheduled runs and conversations sit there
+    alike. One source instead of two.
     """
     c = config()
-    heim = os.environ.get("HERMES_HOME") or HOME
-    pfad = args.datei or os.path.join(heim, "state.db")
-    if not os.path.exists(pfad):
-        raise Fehler(f"Keine Zustandsdatenbank unter {pfad}.")
+    home = os.environ.get("HERMES_HOME") or HOME
+    path = args.file or os.path.join(home, "state.db")
+    if not os.path.exists(path):
+        raise ToolError(f"No state database at {path}.")
 
-    grenze = 0.0
-    if args.tage:
+    cutoff = 0.0
+    if args.days:
         import time as _t
-        grenze = _t.time() - args.tage * 86400
+        cutoff = _t.time() - args.days * 86400
 
     import sqlite3
-    # Nur lesend: die Datei gehört dem laufenden Gateway.
-    v = sqlite3.connect(f"file:{pfad}?mode=ro", uri=True)
+    # Read-only: the file belongs to the running gateway.
+    v = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     v.row_factory = sqlite3.Row
-    saetze = []
+    records = []
     for r in v.execute(
         """SELECT id, source, title, model, api_call_count,
                   input_tokens, cache_read_tokens, cache_write_tokens,
@@ -137,12 +138,12 @@ def cmd_usage(args):
            WHERE started_at >= ?
              AND (input_tokens + cache_read_tokens + cache_write_tokens
                   + output_tokens) > 0
-           ORDER BY started_at""", (grenze,)):
+           ORDER BY started_at""", (cutoff,)):
         titel = r["title"] or ""
-        # Cron-Sitzungen heißen "<Auftragsname> · Aug 19 08:17"; davor steht
-        # der Auftragsname, und den will die Kostenansicht gruppieren.
+        # A cron session is titled "<job name> · Aug 19 08:17"; the part in
+        # front is what the cost page groups by.
         auftrag = titel.split(" · ")[0].strip() if r["source"] == "cron" and " · " in titel else None
-        saetze.append({
+        records.append({
             "ref": f"session:{r['id']}",
             "source": r["source"],
             "title": titel[:200] or None,
@@ -153,8 +154,8 @@ def cmd_usage(args):
             "cache_read_tokens": r["cache_read_tokens"] or 0,
             "cache_write_tokens": r["cache_write_tokens"] or 0,
             "output_tokens": r["output_tokens"] or 0,
-            # actual_cost_usd steht nur, wenn der Anbieter eine echte Zahl
-            # geliefert hat; sonst ist die Schätzung das Beste, was es gibt.
+            # actual_cost_usd is set only when the provider reported a real
+            # figure; otherwise the estimate is the best there is.
             "cost_usd": r["actual_cost_usd"] if r["actual_cost_usd"] is not None
                         else r["estimated_cost_usd"],
             "cost_status": ("actual" if r["actual_cost_usd"] is not None
@@ -163,44 +164,46 @@ def cmd_usage(args):
         })
     v.close()
 
-    if not saetze:
-        print("Nichts zu schicken.")
+    if not records:
+        print("Nothing to send.")
         return
 
-    gesamt = neu = 0
-    for i in range(0, len(saetze), 300):
-        a = api(c, "/api/bot/usage", {"records": saetze[i:i + 300]})
-        gesamt += a.get("accepted", 0)
-        neu += a.get("stored", 0)
-    summe = sum(x["cost_usd"] or 0 for x in saetze)
-    print(f"{gesamt} Sitzungen geschickt, {neu} davon neu, zusammen {summe:.2f} USD.")
+    sent = fresh = 0
+    for i in range(0, len(records), 300):
+        a = api(c, "/api/bot/usage", {"records": records[i:i + 300]})
+        sent += a.get("accepted", 0)
+        fresh += a.get("stored", 0)
+    total = sum(x["cost_usd"] or 0 for x in records)
+    print(f"Sent {sent} sessions, {fresh} of them new, {total:.2f} USD in total.")
 
 
 def main():
     import argparse
-    p = argparse.ArgumentParser(prog="chat", description="Als Bot in die Kanäle der Hermes-Oberfläche schreiben.")
-    u = p.add_subparsers(dest="befehl", required=True)
+    p = argparse.ArgumentParser(prog="chat", description="Post into the Hermes console as a bot.")
+    u = p.add_subparsers(dest="command", required=True)
 
-    s = u.add_parser("post", help="eine Nachricht in einen Kanal schreiben")
-    s.add_argument("text", nargs="*", help="der Text; '-' oder leer liest von stdin")
+    s = u.add_parser("post", help="post a message into a channel")
+    s.add_argument("text", nargs="*", help="the text; '-' or empty reads stdin")
     # Die alten Namen bleiben als Zweitschreibweise: sie stehen in SOUL-Dateien
     # und Cron-Prompts auf Servern, die niemand gleichzeitig mit anfasst.
     s.add_argument("--channel", "--kanal", dest="channel",
-                   help="Kanalname ohne #; Standard steht in der Konfiguration")
+                   help="channel name without #; the default is in the configuration")
     s.add_argument("--thread", "--faden", dest="thread",
-                   help="Kennung einer Nachricht, unter die geantwortet wird")
+                   help="id of the message to reply under")
 
-    u.add_parser("channels", aliases=["kanaele"], help="welche Kanäle es gibt")
+    u.add_parser("channels", aliases=["kanaele"], help="which channels exist")
 
-    v = u.add_parser("usage", help="Kosten der Läufe übertragen")
-    v.add_argument("--tage", type=int, help="nur Läufe der letzten N Tage")
-    v.add_argument("--datei", help="andere Zustandsdatenbank als HERMES_HOME/state.db")
+    v = u.add_parser("usage", help="ship the cost of runs to the console")
+    v.add_argument("--days", "--tage", dest="days", type=int,
+               help="only runs from the last N days")
+    v.add_argument("--file", "--datei", dest="file",
+               help="a state database other than HERMES_HOME/state.db")
 
     args = p.parse_args()
     try:
-        {"post": cmd_post, "channels": cmd_kanaele,
-         "kanaele": cmd_kanaele, "usage": cmd_usage}[args.befehl](args)
-    except Fehler as e:
+        {"post": cmd_post, "channels": cmd_channels,
+         "kanaele": cmd_channels, "usage": cmd_usage}[args.command](args)
+    except ToolError as e:
         print(f"chat: {e}", file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
