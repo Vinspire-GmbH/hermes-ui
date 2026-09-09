@@ -16,7 +16,7 @@ Zugangsdaten: $HOME/.config/chat/config.json (0600)
 
 Den Schlüssel stellt die Oberfläche aus: POST /api/bots/<id>/tokens.
 `kanal` ist der Standardkanal und darf fehlen; dann ist --kanal Pflicht.
-Einzelheiten in VERBINDEN.md.
+Einzelheiten in CONNECTING.md.
 """
 
 import json
