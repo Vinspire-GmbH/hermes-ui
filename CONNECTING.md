@@ -304,6 +304,14 @@ a cron report arrives. The author never gets notified about their own message.
 The page is installable as a PWA; on a phone that is also what makes push work
 at all under iOS.
 
+**Seeing the schedule.** The Schedule page lists every profile's cron jobs,
+sorted by next run across all of them — the question it answers is "what
+happens next", which grouping by owner would turn back into mental
+arithmetic. Source is `GET /api/jobs` on the api_server platform, so it needs
+no credential beyond the one the bot already has. It is read-only: pausing,
+resuming and running a job now exist as endpoints on the Hermes side
+(`POST /api/jobs/{id}/pause|resume|run`) but are not wired into this page.
+
 **Building a SOUL.** Step 2 of the bot wizard is an interview: an existing bot
 asks one question at a time about what the new agent is responsible for, what
 it must not touch, which tools it has, and what it should remember, then writes
