@@ -64,7 +64,7 @@ function tabellenAnlegen(sqlite: Database.Database) {
       channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
       thread_root_id TEXT, author_kind TEXT NOT NULL, author_id TEXT NOT NULL,
       body TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'done',
-      created_at INTEGER NOT NULL);
+      run_id TEXT, created_at INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS messages_channel_time ON messages(channel_id, created_at);
     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_root_id);
 
@@ -77,4 +77,8 @@ function tabellenAnlegen(sqlite: Database.Database) {
     CREATE UNIQUE INDEX IF NOT EXISTS bot_session_unique
       ON bot_sessions(bot_id, channel_id, thread_root_id);
   `)
+
+  // Bestehende Ablagen nachruesten. ADD COLUMN ist billig und idempotent,
+  // wenn man den Fehler bei vorhandener Spalte schluckt.
+  try { sqlite.exec('ALTER TABLE messages ADD COLUMN run_id TEXT') } catch { /* gibt es schon */ }
 }

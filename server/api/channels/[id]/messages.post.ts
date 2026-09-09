@@ -1,16 +1,17 @@
 import { useDb, schema } from '~~/server/db'
 import { angemeldet } from '~~/server/utils/auth'
 import { id } from '~~/server/utils/ids'
-import { frageBot, neueSitzung } from '~~/server/utils/hermes'
+import { laufStarten, neueSitzung } from '~~/server/utils/hermes'
 import { eq, and, isNull } from 'drizzle-orm'
 
 /**
- * Nachricht senden — und, falls angesprochen, den Bot antworten lassen.
+ * Nachricht senden — und, falls angesprochen, einen Agentenlauf starten.
  *
- * Der Agent braucht bis zu zwei Minuten. Deshalb wird die Antwort **nicht**
- * abgewartet: es entsteht sofort eine Nachricht im Zustand `pending`, der Lauf
- * geschieht im Hintergrund, und die Oberfläche holt das Ergebnis nach. Anders
- * hinge der Absender zwei Minuten in einer offenen Anfrage.
+ * Der Lauf wird nur **angestoßen**, nicht abgewartet: `/v1/runs` antwortet in
+ * Millisekunden mit einer Kennung. Die Antwort holt `messages.get` nach, sobald
+ * der Lauf fertig ist. Damit gibt es keine lange offene Anfrage — und ein
+ * Neustart der Anwendung verliert keinen laufenden Auftrag, weil die Kennung
+ * in der Nachricht steht.
  */
 export default defineEventHandler(async (event) => {
   const u = await angemeldet(event)
@@ -25,12 +26,11 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 403, statusMessage: 'Kein Mitglied dieses Kanals' })
   }
 
-  const jetzt = Date.now()
+  const text = body.trim()
   const mid = id('msg')
   await db.insert(schema.messages).values({
     id: mid, channelId: cid, threadRootId: faden || null,
-    authorKind: 'user', authorId: u.id, body: body.trim(),
-    state: 'done', createdAt: jetzt,
+    authorKind: 'user', authorId: u.id, body: text, state: 'done', createdAt: Date.now(),
   })
 
   const [kanal] = await db.select().from(schema.channels)
@@ -38,8 +38,8 @@ export default defineEventHandler(async (event) => {
   const botsImKanal = mitglieder.filter(m => m.kind === 'bot').map(m => m.refId)
 
   // Wer ist gemeint? In einer Direktnachricht immer der Bot; in einem Kanal
-  // nur, wer mit @kürzel erwähnt wird — sonst würde jeder Zuruf zwischen
-  // Kollegen vier Agenten und damit vier Modellaufrufe auslösen.
+  // nur, wer mit @kürzel erwähnt wird — sonst löst jeder Zuruf zwischen
+  // Kollegen vier Agenten und damit vier Modellaufrufe aus.
   let gefragt: string[] = []
   if (kanal?.kind === 'dm') {
     gefragt = botsImKanal
@@ -47,58 +47,50 @@ export default defineEventHandler(async (event) => {
     const alle = await db.select().from(schema.bots)
     gefragt = alle
       .filter(b => botsImKanal.includes(b.id))
-      .filter(b => new RegExp(`@${b.slug}\\b`, 'i').test(body))
+      .filter(b => new RegExp(`@${b.slug}\\b`, 'i').test(text))
       .map(b => b.id)
   }
 
   for (const botId of gefragt) {
     const antwortId = id('msg')
-    await db.insert(schema.messages).values({
-      id: antwortId, channelId: cid, threadRootId: faden || null,
-      authorKind: 'bot', authorId: botId, body: '', state: 'pending',
-      createdAt: Date.now(),
-    })
-    // Absichtlich nicht abgewartet.
-    void laufen(botId, cid, faden || null, body.trim(), antwortId)
+    try {
+      const sitzung = await sitzungFuer(botId, cid, faden || null)
+      const runId = await laufStarten(botId, text, sitzung)
+      await db.insert(schema.messages).values({
+        id: antwortId, channelId: cid, threadRootId: faden || null,
+        authorKind: 'bot', authorId: botId, body: '', state: 'pending',
+        runId, createdAt: Date.now(),
+      })
+    } catch (e: any) {
+      await db.insert(schema.messages).values({
+        id: antwortId, channelId: cid, threadRootId: faden || null,
+        authorKind: 'bot', authorId: botId,
+        body: `Der Lauf ließ sich nicht starten: ${e?.statusMessage || e?.message || 'unbekannt'}`,
+        state: 'error', createdAt: Date.now(),
+      })
+    }
   }
 
-  return { id: mid, antworten: gefragt.length }
+  return { id: mid, laeufe: gefragt.length }
 })
 
-/** Fragt den Agenten und schreibt seine Antwort in die vorbereitete Nachricht. */
-async function laufen(
-  botId: string, cid: string, faden: string | null, text: string, antwortId: string,
-) {
+/** Eine Hermes-Sitzung je Bot und Gesprächsstrang, damit der Verlauf erhalten bleibt. */
+async function sitzungFuer(botId: string, cid: string, faden: string | null) {
   const db = useDb()
-  try {
-    const bedingung = faden
-      ? and(eq(schema.botSessions.botId, botId), eq(schema.botSessions.channelId, cid),
-            eq(schema.botSessions.threadRootId, faden))
-      : and(eq(schema.botSessions.botId, botId), eq(schema.botSessions.channelId, cid),
-            isNull(schema.botSessions.threadRootId))
-    const [vorhanden] = await db.select().from(schema.botSessions).where(bedingung).limit(1)
+  const bedingung = faden
+    ? and(eq(schema.botSessions.botId, botId), eq(schema.botSessions.channelId, cid),
+          eq(schema.botSessions.threadRootId, faden))
+    : and(eq(schema.botSessions.botId, botId), eq(schema.botSessions.channelId, cid),
+          isNull(schema.botSessions.threadRootId))
+  const [vorhanden] = await db.select().from(schema.botSessions).where(bedingung).limit(1)
+  if (vorhanden) return vorhanden.hermesSessionId
 
-    let sitzung = vorhanden?.hermesSessionId ?? null
-    if (!sitzung) {
-      sitzung = await neueSitzung(botId)
-      if (sitzung) {
-        await db.insert(schema.botSessions).values({
-          id: id('s'), botId, channelId: cid, threadRootId: faden,
-          hermesSessionId: sitzung, createdAt: Date.now(),
-        })
-      }
-    }
-
-    const a = await frageBot(botId, text, sitzung)
-    await db.update(schema.messages)
-      .set({ body: a.text || '(keine Antwort)', state: 'done' })
-      .where(eq(schema.messages.id, antwortId))
-  } catch (e: any) {
-    await db.update(schema.messages)
-      .set({
-        body: `Fehler beim Aufruf: ${e?.statusMessage || e?.message || 'unbekannt'}`,
-        state: 'error',
-      })
-      .where(eq(schema.messages.id, antwortId))
+  const neu = await neueSitzung(botId)
+  if (neu) {
+    await db.insert(schema.botSessions).values({
+      id: id('s'), botId, channelId: cid, threadRootId: faden,
+      hermesSessionId: neu, createdAt: Date.now(),
+    })
   }
+  return neu
 }

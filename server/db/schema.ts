@@ -76,6 +76,9 @@ export const messages = sqliteTable('messages', {
   body: text('body').notNull(),
   // Läuft der Agent noch, steht hier 'pending'; bei einem Fehler 'error'.
   state: text('state', { enum: ['done', 'pending', 'error'] }).notNull().default('done'),
+  // Kennung des Hermes-Laufs, solange er offen ist. Steht sie in der Zeile,
+  // kann der Zustand nach einem Neustart der Anwendung weiterverfolgt werden.
+  runId: text('run_id'),
   createdAt: integer('created_at').notNull(),
 }, (t) => [
   index('messages_channel_time').on(t.channelId, t.createdAt),
