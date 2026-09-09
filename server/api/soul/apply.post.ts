@@ -43,6 +43,18 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: `The SOUL must not contain the line ${HEREDOC}` })
   }
 
+  // `cloneFrom` lands in a command line, so it gets the same treatment as
+  // `profile` — a profile name and nothing else. Without this check a string
+  // like "default; curl … | sh" turns "administrator of this console" into
+  // "shell on the agent host", and those are meant to be different things.
+  const cloneFrom = String(body?.cloneFrom || 'default').trim()
+  if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(cloneFrom)) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Source profile: lowercase letters, digits and dashes only',
+    })
+  }
+
   const db = useDb()
   const operator = body.operatorBotId
     ? (await db.select().from(schema.bots).where(eq(schema.bots.id, body.operatorBotId)).limit(1))[0]
@@ -70,7 +82,7 @@ export default defineEventHandler(async (event) => {
     `   credentials (a fresh profile has neither and cannot answer):`,
     '',
     `   HERMES_HOME=/opt/data hermes profile create ${profile} \\`,
-    `     --clone-from ${body.cloneFrom || 'default'} \\`,
+    `     --clone-from ${cloneFrom} \\`,
     `     --description ${shellQuote(body.description || profile)}`,
     '',
     '2. Find out where it landed:',

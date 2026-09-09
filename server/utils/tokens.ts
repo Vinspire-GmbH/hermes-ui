@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { useDb, schema } from '../db'
+import { rateLimit } from './ratelimit'
 import { eq } from 'drizzle-orm'
 
 /** Only the hash goes into storage — a stolen backup hands out no keys. */
@@ -21,6 +22,9 @@ export function newToken(prefix = 'hui') {
  * measuring partial matches.
  */
 export async function botFromKey(event: any) {
+  // Generous, because a cron fleet may report in bursts — but not unlimited.
+  rateLimit(event, 'bot-key', 120, 10 * 60 * 1000)
+
   const header = getHeader(event, 'authorization') || ''
   const token = header.replace(/^Bearer\s+/i, '').trim()
   if (!token) throw createError({ statusCode: 401, statusMessage: 'No key' })

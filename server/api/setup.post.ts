@@ -1,5 +1,6 @@
 import { useDb, schema } from '~~/server/db'
 import { id, slugify } from '~~/server/utils/ids'
+import { rateLimit } from '~~/server/utils/ratelimit'
 import { sql } from 'drizzle-orm'
 
 /**
@@ -10,6 +11,8 @@ import { sql } from 'drizzle-orm'
  * variable, the kind nobody changes afterwards.
  */
 export default defineEventHandler(async (event) => {
+  rateLimit(event, 'setup', 10, 10 * 60 * 1000)
+
   const db = useDb()
   const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(schema.users)
   if (n > 0) throw createError({ statusCode: 409, statusMessage: 'Already set up' })

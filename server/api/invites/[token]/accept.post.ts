@@ -1,6 +1,7 @@
 import { useDb, schema } from '~~/server/db'
 import { id } from '~~/server/utils/ids'
 import { hashToken } from '~~/server/utils/tokens'
+import { rateLimit } from '~~/server/utils/ratelimit'
 import { eq } from 'drizzle-orm'
 
 /**
@@ -10,6 +11,8 @@ import { eq } from 'drizzle-orm'
  * forwarded creates one account and not five.
  */
 export default defineEventHandler(async (event) => {
+  rateLimit(event, 'invite-accept', 10, 10 * 60 * 1000)
+
   const token = getRouterParam(event, 'token')!
   const { name, email, password } = await readBody<{
     name?: string; email?: string; password?: string

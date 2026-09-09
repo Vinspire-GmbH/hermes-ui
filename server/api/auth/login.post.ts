@@ -1,7 +1,12 @@
 import { useDb, schema } from '~~/server/db'
+import { rateLimit } from '~~/server/utils/ratelimit'
 import { eq } from 'drizzle-orm'
 
 export default defineEventHandler(async (event) => {
+  // Ten tries per ten minutes and address. Enough for a forgotten password,
+  // useless for a dictionary.
+  rateLimit(event, 'login', 10, 10 * 60 * 1000)
+
   const { email, password } = await readBody<{ email?: string; password?: string }>(event)
   if (!email || !password) {
     throw createError({ statusCode: 400, statusMessage: 'Email and password required' })

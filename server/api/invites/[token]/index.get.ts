@@ -1,5 +1,6 @@
 import { useDb, schema } from '~~/server/db'
 import { hashToken } from '~~/server/utils/tokens'
+import { rateLimit } from '~~/server/utils/ratelimit'
 import { eq } from 'drizzle-orm'
 
 /**
@@ -11,6 +12,9 @@ import { eq } from 'drizzle-orm'
  * guessed token should reveal nothing beyond "no".
  */
 export default defineEventHandler(async (event) => {
+  // This endpoint is open by necessity and the token is the whole guard.
+  rateLimit(event, 'invite-check', 30, 10 * 60 * 1000)
+
   const token = getRouterParam(event, 'token')!
   const [row] = await useDb().select().from(schema.invites)
     .where(eq(schema.invites.tokenHash, hashToken(token))).limit(1)

@@ -33,18 +33,15 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return
   if (url.pathname.startsWith('/api/')) return
 
-  // Network first: the app should always be the current build. The cache is
-  // the fallback for a train tunnel, not the primary source.
+  // Network first, and rendered pages are never stored.
+  //
+  // A navigation response is server-rendered for whoever asked for it: it can
+  // contain channel names, messages, colleagues. Putting that in Cache Storage
+  // leaves it on the device after signing out, readable by the next person to
+  // open the browser offline. So only the static shell listed above is
+  // cached, and a navigation that fails offline falls back to it.
   event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response.ok && request.mode === 'navigate') {
-          const copy = response.clone()
-          caches.open(SHELL).then(cache => cache.put('/', copy)).catch(() => {})
-        }
-        return response
-      })
-      .catch(() => caches.match(request).then(hit => hit || caches.match('/'))),
+    fetch(request).catch(() => caches.match(request).then(hit => hit || caches.match('/'))),
   )
 })
 
