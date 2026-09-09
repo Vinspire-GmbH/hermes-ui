@@ -7,7 +7,9 @@
     "build": "nuxt build",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "start": "node .output/server/index.mjs",
+    "icons": "node scripts/make-icons.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
@@ -21,5 +23,9 @@
     "@tailwindcss/vite": "^4.1.18",
     "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4.1.18"
+  },
+  "description": "A self-hosted chat console for Hermes agents: channels, direct messages, approvals, schedule and cost.",
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

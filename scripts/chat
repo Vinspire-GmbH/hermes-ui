@@ -139,7 +139,7 @@ def cmd_usage(args):
                   + output_tokens) > 0
            ORDER BY started_at""", (grenze,)):
         titel = r["title"] or ""
-        # Cron-Sitzungen heißen "Blog vinspire · Aug 19 08:17"; davor steht
+        # Cron-Sitzungen heißen "<Auftragsname> · Aug 19 08:17"; davor steht
         # der Auftragsname, und den will die Kostenansicht gruppieren.
         auftrag = titel.split(" · ")[0].strip() if r["source"] == "cron" and " · " in titel else None
         saetze.append({
