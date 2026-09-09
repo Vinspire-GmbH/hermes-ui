@@ -249,3 +249,64 @@ export async function ask(
     session: r?.session_id || session || null,
   }
 }
+
+export interface CronJob {
+  id: string
+  name: string
+  schedule: string
+  nextRunAt: string | null
+  lastRunAt: string | null
+  lastStatus: string | null
+  lastError: string | null
+  failureStreak: number
+  state: string
+  enabled: boolean
+  pausedReason: string | null
+  deliver: string | null
+  script: string | null
+  skills: string[]
+  model: string | null
+  noAgent: boolean
+  prompt: string | null
+  repeat: { times: number | null; completed: number } | null
+}
+
+/**
+ * The cron jobs of one profile.
+ *
+ * `GET /api/jobs` on the api_server platform, with the key the console
+ * already holds — no second credential and no dashboard cookie. It returns
+ * far more per job than anyone wants to read (fire claims, model snapshots,
+ * monitor state), so this narrows it to the fields a person asks about.
+ */
+export async function listJobs(botId: string): Promise<CronJob[]> {
+  const bot = await getBot(botId)
+  const r = await $fetch<any>(`${bot.apiBase.replace(/\/$/, '')}/api/jobs`, {
+    headers: headers(bot),
+    timeout: 20_000,
+  })
+  const jobs = Array.isArray(r?.jobs) ? r.jobs : (Array.isArray(r) ? r : [])
+  return jobs.map((j: any): CronJob => ({
+    id: String(j.id),
+    name: j.name || j.id,
+    // `schedule_display` is the human form; the nested object carries the
+    // expression. Interval jobs have no cron expression at all, so neither
+    // field can be assumed.
+    schedule: j.schedule_display || j.schedule?.display || j.schedule?.expr || '—',
+    nextRunAt: j.next_run_at || null,
+    lastRunAt: j.last_run_at || null,
+    lastStatus: j.last_status || null,
+    lastError: j.last_error || j.last_delivery_error || null,
+    failureStreak: Number(j.failure_streak || 0),
+    state: j.state || (j.enabled ? 'scheduled' : 'paused'),
+    enabled: j.enabled !== false,
+    pausedReason: j.paused_reason || null,
+    deliver: j.deliver || null,
+    script: j.script || null,
+    skills: Array.isArray(j.skills) ? j.skills : (j.skill ? [j.skill] : []),
+    model: j.model || null,
+    noAgent: Boolean(j.no_agent),
+    prompt: j.prompt || null,
+    repeat: j.repeat || null,
+  }))
+}

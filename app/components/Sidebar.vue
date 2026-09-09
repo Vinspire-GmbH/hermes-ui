@@ -79,6 +79,10 @@ const dms = computed(() => channels.value.filter(c => c.kind === 'dm'))
     </nav>
 
     <div class="border-t border-edge p-2 space-y-1">
+      <NuxtLink to="/crons"
+        class="block px-2 py-1.5 text-xs font-mono uppercase tracking-wider text-muted hover:text-cyan transition-colors">
+        {{ t('nav.schedule') }}
+      </NuxtLink>
       <NuxtLink v-if="isAdmin" to="/admin"
         class="block px-2 py-1.5 text-xs font-mono uppercase tracking-wider text-muted hover:text-cyan transition-colors">
         {{ t('nav.admin') }}
