@@ -413,7 +413,7 @@ not break between deploying this and editing its config files:
 |---|---|---|
 | `POST /api/bot/messages` | `channel`, `thread` | `kanal`, `faden` |
 | `config.json` for `chat` | `channel` | `kanal` |
-| `chat` CLI | `--channel`, `chat channels` | `--kanal`, `chat kanaele` |
+| `chat` CLI | `--channel`, `chat channels`, `--days`, `--file` | `--kanal`, `chat kanaele`, `--tage`, `--datei` |
 
-The `chat` tool's own help text and error messages are German. It is read by
-agents rather than people, which is why translating it has not been urgent.
+Everything else — routes, fields, error messages, and the `chat` tool's own
+help and output — is English.
