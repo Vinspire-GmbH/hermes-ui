@@ -1,6 +1,7 @@
 import { useDb, schema } from '~~/server/db'
 import { id } from '~~/server/utils/ids'
 import { botFromKey } from '~~/server/utils/tokens'
+import { and, eq, isNull } from 'drizzle-orm'
 
 /**
  * Receive a profile's cron usage records.
@@ -45,7 +46,21 @@ export default defineEventHandler(async (event) => {
       })
       stored++
     } catch {
-      // Unique on `ref` — this run was already shipped.
+      // Unique on `ref` — this run was already shipped. Fill in a name or
+      // model that a later shipment knows and the first one did not: Hermes
+      // logs only `job_id`, so the name arrives once the tool learned to look
+      // it up. Nothing else is touched, so a re-send cannot rewrite history.
+      if (r.job_name || r.model) {
+        await db.update(schema.usage)
+          .set({
+            ...(r.job_name ? { jobName: r.job_name } : {}),
+            ...(r.model ? { model: r.model } : {}),
+          })
+          .where(and(
+            eq(schema.usage.ref, ref),
+            isNull(schema.usage.jobName),
+          ))
+      }
     }
   }
   return { accepted: records.length, stored }

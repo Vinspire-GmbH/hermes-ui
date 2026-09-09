@@ -120,6 +120,23 @@ def cmd_usage(args):
         from datetime import datetime, timedelta, timezone
         grenze = datetime.now(timezone.utc) - timedelta(days=args.tage)
 
+    # Hermes schreibt in die Verbrauchsdatei nur job_id, keinen Namen. Der
+    # steht daneben in jobs.json, also wird er hier nachgeschlagen — sonst
+    # zeigt die Kostenansicht Kennungen statt Auftragsnamen.
+    namen = {}
+    jobs_pfad = os.path.join(os.path.dirname(pfad), "jobs.json")
+    try:
+        with open(jobs_pfad, encoding="utf-8") as f:
+            d = json.load(f)
+        js = d if isinstance(d, list) else d.get("jobs", d)
+        if isinstance(js, dict):
+            js = list(js.values())
+        for j in js:
+            if j.get("id"):
+                namen[j["id"]] = j.get("name") or j["id"]
+    except Exception:
+        pass          # ohne Namen ist die Ansicht ärmer, nicht kaputt
+
     saetze = []
     with open(pfad, encoding="utf-8") as f:
         for zeile in f:
@@ -140,6 +157,8 @@ def cmd_usage(args):
                         continue
                 except Exception:
                     pass
+            if not r.get("job_name") and namen.get(r.get("job_id")):
+                r["job_name"] = namen[r["job_id"]]
             saetze.append(r)
 
     if not saetze:
