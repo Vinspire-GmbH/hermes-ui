@@ -25,5 +25,13 @@
     "tailwindcss": "^4.1.18"
   },
   "description": "A self-hosted chat console for Hermes agents: channels, direct messages, approvals, schedule and cost.",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vinspire-GmbH/hermes-ui.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Vinspire-GmbH/hermes-ui/issues"
+  },
+  "homepage": "https://github.com/Vinspire-GmbH/hermes-ui#readme"
 }
