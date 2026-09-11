@@ -1,0 +1,72 @@
+# What this catches, from experience rather than principle:
+#
+#   - A build that passes on a maintainer's machine and fails on the
+#     deployment's Node. That happened: Node 26 locally, Node 20 in the
+#     builder, and `Set.prototype.difference` does not exist there.
+#   - An image that builds and cannot start. That also happened, for want of
+#     libatomic.so.1 — so the container is not just built here, it is run.
+#
+# The Node version comes from .node-version, so there is one place to change.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # A build is not a start. Boot the server and ask it something.
+      - name: Boot without configuration — must refuse and say why
+        run: |
+          HERMES_UI_DB=/tmp/ci.db PORT=3123 node .output/server/index.mjs &
+          for i in $(seq 1 30); do
+            curl -fsS -o /dev/null "http://127.0.0.1:3123/login" && break || sleep 1
+          done
+          code=$(curl -s -o /tmp/body -w '%{http_code}' http://127.0.0.1:3123/api/setup)
+          test "$code" = "503" || { echo "expected 503, got $code"; cat /tmp/body; exit 1; }
+          grep -q NUXT_SESSION_PASSWORD /tmp/body || { echo "no explanation in the body"; cat /tmp/body; exit 1; }
+          kill %1
+
+      - name: Boot with configuration — must serve and create the first account
+        run: |
+          rm -f /tmp/ci2.db
+          HERMES_UI_DB=/tmp/ci2.db PORT=3124 \
+            NUXT_SESSION_PASSWORD="$(openssl rand -base64 32)" \
+            node .output/server/index.mjs &
+          for i in $(seq 1 30); do
+            curl -fsS -o /dev/null "http://127.0.0.1:3124/api/setup" && break || sleep 1
+          done
+          curl -fsS http://127.0.0.1:3124/api/setup | grep -q '"configured":false'
+          curl -fsS -X POST http://127.0.0.1:3124/api/setup \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"CI","email":"ci@example.com","password":"passwort1234"}' \
+            | grep -q '"ok":true'
+          kill %1
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t hermes-console:ci .
+
+      - name: The image has to start, not just build
+        run: |
+          docker run -d --name ci -p 3125:3000 \
+            -e NUXT_SESSION_PASSWORD="$(openssl rand -base64 32)" hermes-console:ci
+          for i in $(seq 1 40); do
+            curl -fsS -o /dev/null "http://127.0.0.1:3125/api/setup" && break || sleep 1
+          done
+          curl -fsS http://127.0.0.1:3125/api/setup | grep -q '"configured":false'
+          test "$(docker exec ci id -un)" = "node" || { echo "running as root"; exit 1; }
+          docker rm -f ci

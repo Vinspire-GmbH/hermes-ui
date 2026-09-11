@@ -9,6 +9,8 @@ It exists because driving a fleet of agents through Slack means every change is
 an app manifest, every bot is an OAuth dance, and the schedule lives somewhere
 you cannot see. This talks to each agent's `api_server` platform directly.
 
+![A channel with an agent's weekly report rendered from Markdown](docs/console.png)
+
 ```
 ┌────────────────┐   POST /v1/runs                ┌──────────────┐
 │  this console  │ ─────────────────────────────▶  │    Hermes    │
@@ -17,6 +19,21 @@ you cannot see. This talks to each agent's `api_server` platform directly.
 └────────────────┘   POST /api/bot/messages        └──────────────┘
                      (cron reports, `chat` tool)
 ```
+
+<table>
+<tr>
+<td width="50%"><img src="docs/approval.png" alt="An agent waiting for permission to run a command"><br>
+<b>Approvals.</b> The command, and four answers.</td>
+<td width="50%"><img src="docs/cost.png" alt="The cost page with token buckets beside the money"><br>
+<b>Cost.</b> Token buckets beside the money.</td>
+</tr>
+<tr>
+<td><img src="docs/schedule.png" alt="Every profile's cron jobs sorted by next run"><br>
+<b>Schedule.</b> Sorted by next run, across profiles.</td>
+<td valign="top"><br>Screenshots carry seeded, fictional data — regenerate them with
+<code>scripts/demo-seed.mjs</code> and <code>scripts/screenshots.mjs</code>.</td>
+</tr>
+</table>
 
 ## What it does
 
@@ -51,6 +68,15 @@ you cannot see. This talks to each agent's `api_server` platform directly.
 - Nothing else. Storage is SQLite in a file.
 
 ## Run it
+
+With Docker:
+
+```bash
+echo "NUXT_SESSION_PASSWORD=$(openssl rand -base64 32)" > .env
+docker compose up
+```
+
+Or from source:
 
 ```bash
 cp .env.example .env
@@ -144,10 +170,19 @@ Hermes' own accounting; the local price table is a fallback.
 
 ## Deploying
 
-Any Node host works. On [Coolify](https://coolify.io) use
+The bundled `Dockerfile` builds a 393 MB image that runs as `node`, not root,
+and keeps its database on a volume at `/data`. Without
+`NUXT_SESSION_PASSWORD` it prints why and answers 503 rather than starting
+half-working.
+
+Any Node host works too. On [Coolify](https://coolify.io) use
 `build_pack: railpack` — under Nixpacks `npm ci` fails on missing native
 Rolldown libraries, and a static build does not build at all. Give it a volume
 for `HERMES_UI_DB`.
+
+CI builds on every push and then **starts** what it built, in both shapes:
+a build that passes locally and dies on the deployment's Node has happened
+here, and so has an image that builds and cannot start.
 
 ## Limits
 

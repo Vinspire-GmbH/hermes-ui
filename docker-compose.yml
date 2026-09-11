@@ -1,0 +1,28 @@
+# One command to try it:  docker compose up
+#
+# The session password has no default on purpose — an application that
+# invents one silently is an application whose sessions anyone can forge.
+# Generate one with `openssl rand -base64 32` and put it in .env next to
+# this file, or export it before starting.
+services:
+  console:
+    build: .
+    image: hermes-console
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      NUXT_SESSION_PASSWORD: ${NUXT_SESSION_PASSWORD:?set it — openssl rand -base64 32}
+      HERMES_UI_DB: /data/hermes-ui.db
+      # Optional. Without both, notifications stay off rather than failing.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      # How many proxies in front of this you own; decides which
+      # X-Forwarded-For entry the rate limiter counts.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+    volumes:
+      - console-data:/data
+    restart: unless-stopped
+
+volumes:
+  console-data:

@@ -1,0 +1,24 @@
+# Ohne diese Datei kopiert `COPY . .` auch node_modules, den fertigen Build,
+# die Git-Historie — und eine lokale .env mit dem Sitzungspasswort direkt ins
+# Abbild. Das ist der Grund, warum sie existiert.
+.git
+.gitignore
+node_modules
+.output
+.nuxt
+.data
+demo.db*
+
+# Secrets. Niemals ins Abbild.
+.env
+.env.*
+!.env.example
+
+# Nur fuer die README, nicht fuer die Laufzeit.
+docs
+scripts/screenshots.mjs
+scripts/demo-seed.mjs
+
+# macOS
+.DS_Store
+._*
