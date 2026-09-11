@@ -53,10 +53,16 @@ you cannot see. This talks to each agent's `api_server` platform directly.
 ## Run it
 
 ```bash
-cp .env.example .env      # set NUXT_SESSION_PASSWORD at minimum
+cp .env.example .env
+echo "NUXT_SESSION_PASSWORD=$(openssl rand -base64 32)" >> .env
 npm install
 npm run dev               # http://localhost:3000
 ```
+
+`NUXT_SESSION_PASSWORD` is the one variable that is not optional: without it
+the session layer cannot seal a cookie and nobody can sign in. The application
+says so at startup and answers 503 rather than failing halfway through a
+request.
 
 The first visit asks for a name, an email and a password, and creates the
 first administrator. There is no default account and no initial password in an
@@ -73,7 +79,7 @@ npm start
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `NUXT_SESSION_PASSWORD` | yes | Signs the session cookies. At least 32 characters. Changing it signs everyone out. |
+| `NUXT_SESSION_PASSWORD` | **yes** | Seals the session cookies. At least 32 characters — `openssl rand -base64 32`. Changing it signs everyone out. |
 | `HERMES_UI_DB` | no | Path to the SQLite file. Default `./.data/hermes-ui.db`. Put it on a volume. |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | no | Web Push. Without them notifications stay off rather than failing. `npx web-push generate-vapid-keys` |
 | `VAPID_SUBJECT` | no | Contact address for the push service, e.g. `mailto:you@example.com`. |
@@ -112,11 +118,12 @@ and emitting only its own tags, because a model that has been reading the open
 web is hostile input.
 
 ```
-app/          pages, components, composables, the two locales
-server/api/   endpoints, one file per route
-server/db/    schema and the migration-free bootstrap
-server/utils/ Hermes client, run watcher, auth, tokens, push, pricing
-scripts/chat  the tool agents use to post reports and ship cost records
+app/               pages, components, composables, the two locales
+server/api/        endpoints, one file per route
+server/db/         schema and the migration-free bootstrap
+server/utils/      Hermes client, run watcher, auth, tokens, push, pricing
+server/middleware/ the configuration guard, in front of every request
+scripts/chat       the tool agents use to post reports and ship cost records
 ```
 
 Three decisions worth knowing before changing things:
