@@ -17,6 +17,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,21 +30,24 @@ jobs:
       # A build is not a start. Boot the server and ask it something.
       - name: Boot without configuration — must refuse and say why
         run: |
-          HERMES_UI_DB=/tmp/ci.db PORT=3123 node .output/server/index.mjs &
+          HERMES_UI_DB=/tmp/ci.db PORT=3123 node .output/server/index.mjs > /tmp/a.log 2>&1 &
+          server=$!
           for i in $(seq 1 30); do
             curl -fsS -o /dev/null "http://127.0.0.1:3123/login" && break || sleep 1
           done
           code=$(curl -s -o /tmp/body -w '%{http_code}' http://127.0.0.1:3123/api/setup)
           test "$code" = "503" || { echo "expected 503, got $code"; cat /tmp/body; exit 1; }
           grep -q NUXT_SESSION_PASSWORD /tmp/body || { echo "no explanation in the body"; cat /tmp/body; exit 1; }
-          kill %1
+          grep -q "cannot serve requests" /tmp/a.log || { echo "no banner in the log"; cat /tmp/a.log; exit 1; }
+          kill $server
 
       - name: Boot with configuration — must serve and create the first account
         run: |
           rm -f /tmp/ci2.db
           HERMES_UI_DB=/tmp/ci2.db PORT=3124 \
             NUXT_SESSION_PASSWORD="$(openssl rand -base64 32)" \
-            node .output/server/index.mjs &
+            node .output/server/index.mjs > /tmp/b.log 2>&1 &
+          server=$!
           for i in $(seq 1 30); do
             curl -fsS -o /dev/null "http://127.0.0.1:3124/api/setup" && break || sleep 1
           done
@@ -52,10 +56,11 @@ jobs:
             -H 'Content-Type: application/json' \
             -d '{"name":"CI","email":"ci@example.com","password":"passwort1234"}' \
             | grep -q '"ok":true'
-          kill %1
+          kill $server
 
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t hermes-console:ci .
